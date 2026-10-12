@@ -14,10 +14,10 @@
 # It never writes the bootloader (0x08000000) or the settings page (0x0800FC00).
 #
 # USB access goes through GigaDevice's own GD_DFU_DLL.dll from their free
-# "GD32 All-In-One Programmer". It is bundled in gigadevice\ next to this
-# script and checked there first (then next to the script, then the remembered
-# path, then the rest of the computer as a fallback). Its hash is checked
-# against the tested version before use.
+# "GD32 All-In-One Programmer". It is NOT included: download it once into
+# gigadevice\ (see README.md) — it is checked there first (then next to the
+# script, then the remembered path, then the rest of the computer as a
+# fallback). Its hash is checked against the tested version before use.
 # That DLL is 32-bit, which is why flash.bat starts the 32-bit Windows
 # PowerShell. The C# block below is only declarations for calling that DLL and
 # Windows' setupapi.dll / kernel32.dll.
@@ -116,14 +116,15 @@ if ($sp -le 0x20000000 -or $sp -gt 0x20005000 -or ($sp % 4) -ne 0 -or ($reset -b
 }
 }  # end of firmware checks (skipped for backup-only)
 
-# ---------- find GigaDevice's GD_DFU_DLL.dll (bundled in gigadevice\) ----------
-# It comes with GigaDevice's free "GD32 All-In-One Programmer" and is already
-# included here, so normally no download is needed. Order: local copies first
-# (next to this script, then gigadevice\), then the remembered path, then the
-# rest of the computer (download folders / still-packed download / browse).
+# ---------- find GigaDevice's GD_DFU_DLL.dll (download once into gigadevice\) ----------
+# It comes with GigaDevice's free "GD32 All-In-One Programmer" and is NOT
+# included here, so download it once (see README.md for the links). Order:
+# local copies first (next to this script, then gigadevice\), then the
+# remembered path, then the rest of the computer (download folders /
+# still-packed download / browse).
 $DLL_PAGE = 'https://www.gd32mcu.com/en/download?kw=GD32+All-In-One+Programmer'
 $Remember = Join-Path $Here 'gigadevice_dll_location.txt'
-$Unpacked = Join-Path $Here 'gigadevice'   # bundled DLLs live here (also the unpack destination)
+$Unpacked = Join-Path $Here 'gigadevice'   # downloaded DLLs live here (also the unpack destination)
 function Test-GdDll([string]$Path) {
     if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     if ((Split-Path -Leaf $Path) -ne 'GD_DFU_DLL.dll') { return $false }

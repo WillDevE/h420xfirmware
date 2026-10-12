@@ -1,8 +1,9 @@
 # H420X (T223) custom firmware — install, how it was built, what changed vs stock, how flashing works
 
 This folder is a self-contained release. It contains the final firmwares, the
-`.bat` flasher (with its USB driver files bundled), and this writeup. Nothing
-else is needed to install or verify it.
+`.bat` flasher, and this writeup. The two USB files the flasher needs are
+NOT included (see below) — everything else you need to install or verify is
+here.
 
 ## Install (Windows 10/11)
 
@@ -20,16 +21,17 @@ To go back: run `flash.bat` and choose `R` to restore a backup, or install
 the tablet that makes updating possible (the bootloader) is never touched, so
 it can always be fixed.
 
-No download is needed: the two files the flasher uses to talk USB
-(`gigadevice\GD_DFU_DLL.dll` from GigaDevice's free "GD32 All-In-One
-Programmer" v5.4.0.42035, plus `vcruntime140.dll` beside it) are bundled and
-checked locally first. Only if those local copies are missing would the script
-fall back to searching the computer or asking you to download them.
+One download is needed first: the two files the flasher uses to talk USB
+(`GD_DFU_DLL.dll` from GigaDevice's free "GD32 All-In-One Programmer"
+v5.4.0.42035, plus `vcruntime140.dll` beside it) are NOT included in this
+repo. Download them once into `gigadevice\` (see next section) — the script
+checks there first, then falls back to searching the computer or asking you
+to download them.
 
-### If the `gigadevice` files are missing
+### The `gigadevice` files (one-time download, not included)
 
 The flasher looks for `GD_DFU_DLL.dll` next to `flash.bat`, then in
-`gigadevice\`, so putting the files back in `gigadevice\` is enough — no
+`gigadevice\`, so create that folder and put the two files in it — no
 install step, just the two files side by side. Get them from:
 
 - `GD_DFU_DLL.dll` (32-bit, tested v5.4.0.42035) and `vcruntime140.dll` —
@@ -46,14 +48,15 @@ install step, just the two files side by side. Get them from:
   (install it, or place its 32-bit `vcruntime140.dll` next to
   `GD_DFU_DLL.dll`).
 
-After putting them back, check they match before running:
+After downloading them, check they match before running:
 
 ```powershell
 certutil -hashfile gigadevice\GD_DFU_DLL.dll SHA256
 certutil -hashfile gigadevice\vcruntime140.dll SHA256
 ```
 
-against the hashes in the table below. `flash.ps1` re-checks the DLL hash
+against the hashes in the table below (`SHA256SUMS.txt` keeps those two lines
+so you can verify your downloads). `flash.ps1` re-checks the DLL hash
 itself and asks for an explicit `YES` before using a different version.
 
 One thing Windows may still ask for: the DFU driver. Only if `flash.bat` says
@@ -68,19 +71,21 @@ learns tiny differences between its sensor reads and then stays consistent.
 ## Contents
 
 ```text
-H420X-Final-Release/
+h420xfirmware/
   firmware/
     rhythm900.bin   ~910 reports/s, cursor only (no pressure/tip/buttons)
     rhythm750.bin   ~765 reports/s, cursor only (cleanest high rate)
     pen500.bin      exactly 500 reports/s, pressure + tip + buttons
     pen333.bin      exactly 333 reports/s, pressure + tip + buttons
     stock.bin       Huion factory firmware T223_220707 (untouched)
-  gigadevice/
+  gigadevice/       NOT included — you create this folder and put the two
+                    downloaded USB files in it (see above):
     GD_DFU_DLL.dll    GigaDevice USB/DFU library (32-bit, v5.4.0.42035)
     vcruntime140.dll  Microsoft C++ runtime the DLL needs beside it
   flash.bat         7-line launcher: runs flash.ps1 in 32-bit PowerShell
   flash.ps1         the actual installer (plain text, read it in Notepad)
-  SHA256SUMS.txt    hashes of the firmwares, scripts, and bundled DLLs
+  SHA256SUMS.txt    hashes of the firmwares, scripts, and (for verifying
+                    your downloads) the two gigadevice files
   README.md         this file (install + full writeup)
 ```
 
@@ -108,14 +113,16 @@ What you are running (so you do not have to trust us):
 - `flash.bat` — 7 lines: starts `flash.ps1` in Windows' own 32-bit PowerShell
   (needed because GigaDevice's DLL is 32-bit).
 - `flash.ps1` — plain text, commented, open it in Notepad. It only talks to the
-  tablet's update mode (USB `28E9:0189`), uses the bundled `gigadevice\`
-  copies first (hash-checked against the tested version), refuses any
+  tablet's update mode (USB `28E9:0189`), uses your `gigadevice\` copies first
+  (not included — download once, hash-checked against the tested version),
+  refuses any
   bootloader other than the exact H420X/T223 one, backs up the current
   firmware, writes ONLY the 32,000-byte application area at `0x08004000`, and
   verifies every byte. It never writes the bootloader or the settings page. No
   admin rights, nothing installed; the only internet use is opening
   GigaDevice's page if you press `D` in the download fallback.
-- `SHA256SUMS.txt` — hashes of the firmwares, scripts, and DLLs. `flash.ps1`
+- `SHA256SUMS.txt` — hashes of the firmwares, scripts, and (for verifying your
+  downloads) the two gigadevice files. `flash.ps1`
   refuses a firmware whose hash does not match.
 - Files created next to `flash.bat` when you run it: `backups\` (your
   firmware), `gigadevice_dll_location.txt` (which DLL copy was used).
@@ -355,8 +362,10 @@ settings never written, every byte verified.
    `SHA256SUMS.txt`, checks exactly 32,000 bytes and a valid H420X vector
    table (stack sane, reset vector inside the app area). Unknown files need an
    explicit `YES`; backups in `backups\` are restorable without the override.
-2. **Use the bundled USB library.** USB access uses GigaDevice's own 32-bit
-   `GD_DFU_DLL.dll` (tested v5.4.0.42035). The script checks local copies
+2. **Provide the USB library (one-time download, not included).** USB access
+   uses GigaDevice's own 32-bit `GD_DFU_DLL.dll` (tested v5.4.0.42035), which
+   you download once into `gigadevice\` (links above). The script checks local
+   copies
    first — next to the script, then `gigadevice\` — and only then falls back
    to the remembered path, the usual download folders, a still-packed
    All-In-One download, or asking you to browse (re-download links are in the
