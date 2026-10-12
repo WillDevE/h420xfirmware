@@ -13,9 +13,13 @@ step, just the two files side by side:
 - `GD_DFU_DLL.dll` (32-bit, tested v5.4.0.42035) and `vcruntime140.dll` —
   GigaDevice's free "GD32 All-In-One Programmer":
   https://www.gd32mcu.com/en/download?kw=GD32+All-In-One+Programmer
-- `vcruntime140.dll` alone, if you'd rather skip the GigaDevice download —
-  Microsoft's free Visual C++ Redistributable (x86):
-  https://aka.ms/vs/17/release/vc_redist.x86.exe
+  (both files ship in that download — copy them into `gigadevice\`; you need
+  the GigaDevice package either way, it is the only source of the DLL).
+
+If the flasher ever says the DLL can't load (missing runtime), either make
+sure `vcruntime140.dll` sits next to `GD_DFU_DLL.dll`, or install
+Microsoft's free Visual C++ Redistributable (x86):
+https://aka.ms/vs/17/release/vc_redist.x86.exe
 
 Shortcut: run `flash.bat` without the files and it offers `D` to open the
 GigaDevice page or `B` to point at a file you already downloaded (even still
