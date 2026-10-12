@@ -1,102 +1,91 @@
-# H420X (T223) custom firmware — install, how it was built, what changed vs stock, how flashing works
+# H420X (T223) custom firmware
 
-This folder is a self-contained release. It contains the final firmwares, the
-`.bat` flasher, and this writeup. The two USB files the flasher needs are
-NOT included (see below) — everything else you need to install or verify is
-here.
+Faster Huion H420X tablet firmware for rhythm games, plus a `.bat` flasher
+that installs it safely. This folder holds the firmwares, the flasher, and
+this guide. Two small USB files are NOT included — grab them once below.
 
-## Install (Windows 10/11)
+## 1. Download this first (one time)
 
-1. Double-click `flash.bat`.
-2. Recommended the first time: choose `S` to save a backup of the firmware your
-   tablet has now (nothing on the tablet is changed). Then run `flash.bat` again.
-3. Type the number of the firmware you want and press Enter.
-4. When it says so, unplug the tablet's USB cable and plug it back in.
-5. Wait for "DONE", then unplug and plug the tablet in once more.
-
-Every install also saves the tablet's current firmware to the `backups` folder
-first, named after what it is (for example `backup_<date>_stock_aef9a6df.bin`).
-To go back: run `flash.bat` and choose `R` to restore a backup, or install
-`stock.bin`. If anything goes wrong, just run `flash.bat` again: the part of
-the tablet that makes updating possible (the bootloader) is never touched, so
-it can always be fixed.
-
-One download is needed first: the two files the flasher uses to talk USB
-(`GD_DFU_DLL.dll` from GigaDevice's free "GD32 All-In-One Programmer"
-v5.4.0.42035, plus `vcruntime140.dll` beside it) are NOT included in this
-repo. Download them once into `gigadevice\` (see next section) — the script
-checks there first, then falls back to searching the computer or asking you
-to download them.
-
-### The `gigadevice` files (one-time download, not included)
-
-The flasher looks for `GD_DFU_DLL.dll` next to `flash.bat`, then in
-`gigadevice\`, so create that folder and put the two files in it — no
-install step, just the two files side by side. Get them from:
+The flasher talks to the tablet through GigaDevice's USB library. Create a
+`gigadevice` folder next to `flash.bat` and put both files in it — no install
+step, just the two files side by side:
 
 - `GD_DFU_DLL.dll` (32-bit, tested v5.4.0.42035) and `vcruntime140.dll` —
-  free "GD32 All-In-One Programmer" from the chip maker, GigaDevice:
+  GigaDevice's free "GD32 All-In-One Programmer":
   https://www.gd32mcu.com/en/download?kw=GD32+All-In-One+Programmer
-  (download it, then copy those two files out of it into `gigadevice\`;
-  `flash.ps1` can also do this for you — press `D` to open that page or `B`
-  to point it at the file you downloaded, including the still-zipped
-  download).
-- `vcruntime140.dll` alone (32-bit) — Microsoft's free Visual C++
-  Redistributable (x86), if you would rather not unpack the GigaDevice
-  download for it:
+- `vcruntime140.dll` alone, if you'd rather skip the GigaDevice download —
+  Microsoft's free Visual C++ Redistributable (x86):
   https://aka.ms/vs/17/release/vc_redist.x86.exe
-  (install it, or place its 32-bit `vcruntime140.dll` next to
-  `GD_DFU_DLL.dll`).
 
-After downloading them, check they match before running:
+Shortcut: run `flash.bat` without the files and it offers `D` to open the
+GigaDevice page or `B` to point at a file you already downloaded (even still
+zipped) — it copies the two files into `gigadevice\` itself.
+
+Check they match:
 
 ```powershell
 certutil -hashfile gigadevice\GD_DFU_DLL.dll SHA256
 certutil -hashfile gigadevice\vcruntime140.dll SHA256
 ```
 
-against the hashes in the table below (`SHA256SUMS.txt` keeps those two lines
-so you can verify your downloads). `flash.ps1` re-checks the DLL hash
-itself and asks for an explicit `YES` before using a different version.
+against the table under Contents (`SHA256SUMS.txt` has them too). The flasher
+re-checks the DLL hash itself and asks before using any other version.
 
-One thing Windows may still ask for: the DFU driver. Only if `flash.bat` says
-"Windows has no driver for the tablet's update mode", install "GD32 Dfu
-Drivers" once (https://www.gd32mcu.com/en/download?kw=GD32+Dfu+Drivers).
-The driver (`GDDFUDriver.sys`) is signed by Microsoft. PCs that already ran
-Huion's own firmware updater may have it already.
+Driver, only if asked: if the flasher says Windows has no driver for update
+mode, install "GD32 Dfu Drivers" once:
+https://www.gd32mcu.com/en/download?kw=GD32+Dfu+Drivers
+(Signed by Microsoft; PCs that ran Huion's updater usually have it already.)
 
-After installing, move the pen around for a few seconds: the firmware quickly
-learns tiny differences between its sensor reads and then stays consistent.
+## 2. Flash
+
+1. Double-click `flash.bat`. First time, choose `S` to back up the tablet's
+   current firmware (changes nothing), then run it again.
+2. Type a firmware number, Enter.
+3. Unplug the USB cable and plug it back in when told.
+4. Wait for DONE, unplug/plug once more. Move the pen around a few seconds so
+   the firmware settles in.
+5. To undo: run `flash.bat`, choose `R` to restore a backup, or install
+   `stock.bin`. The bootloader is never touched, so just run it again if
+   anything goes wrong.
+
+Every install saves a backup first
+(`backups\backup_<date>_<name>_<hash>.bin`). Before writing, the flasher
+verifies the tablet is a real H420X/T223 (exact bootloader match) and reports
+what it currently runs.
+
+## 3. Which firmware
+
+| File | What it is | Tested |
+|---|---|---|
+| `rhythm900.bin` | ~910/s, cursor only — no pressure/tip/buttons, use keys | 910–915/s, 0 drops, no crossing jumps |
+| `rhythm750.bin` | ~765/s, cursor only, the cleanest fast option | 766/s, 0 drops, no crossing jumps |
+| `pen500.bin` | Exactly 500/s, pressure + tip + buttons, even spacing | 500.29/s, no crossing jumps |
+| `pen333.bin` | Exactly 333/s, same with more frequent pen checks | shares pen500's tested tracker |
+| `stock.bin` | Huion factory firmware — back to exactly as it came | byte-identical original dump |
+
+Cursor-only builds are for rhythm games. Pen builds read pressure fresh every
+scan (no averaging or curve); tip threshold and buttons are Huion's. The
+previous set (`rhythm960`, `pen600`/`pen300`) is superseded — notches and
+uneven delivery — and not shipped.
 
 ## Contents
 
 ```text
 h420xfirmware/
-  firmware/
-    rhythm900.bin   ~910 reports/s, cursor only (no pressure/tip/buttons)
-    rhythm750.bin   ~765 reports/s, cursor only (cleanest high rate)
-    pen500.bin      exactly 500 reports/s, pressure + tip + buttons
-    pen333.bin      exactly 333 reports/s, pressure + tip + buttons
-    stock.bin       Huion factory firmware T223_220707 (untouched)
-  gigadevice/       NOT included — you create this folder and put the two
-                    downloaded USB files in it (see above):
-    GD_DFU_DLL.dll    GigaDevice USB/DFU library (32-bit, v5.4.0.42035)
-    vcruntime140.dll  Microsoft C++ runtime the DLL needs beside it
-  flash.bat         7-line launcher: runs flash.ps1 in 32-bit PowerShell
-  flash.ps1         the actual installer (plain text, read it in Notepad)
-  SHA256SUMS.txt    hashes of the firmwares, scripts, and (for verifying
-                    your downloads) the two gigadevice files
-  README.md         this file (install + full writeup)
+  firmware/       the 5 files above
+  gigadevice/     YOU add this: GD_DFU_DLL.dll + vcruntime140.dll (see §1)
+  flash.bat       launcher (runs flash.ps1 in 32-bit PowerShell)
+  flash.ps1       the installer — plain text, read it in Notepad
+  SHA256SUMS.txt  hashes of everything, including the 2 downloads
+  README.md       this file
 ```
 
-Verify any file yourself:
+`flash.ps1` only talks to update mode (USB `28E9:0189`), backs up first,
+writes only the 32,000-byte app at `0x08004000`, verifies every byte. No
+admin rights, nothing installed. Run files next to `flash.bat`: `backups\`
+(your firmware), `gigadevice_dll_location.txt` (which DLL copy was used).
 
-```powershell
-certutil -hashfile firmware\rhythm900.bin SHA256
-certutil -hashfile gigadevice\GD_DFU_DLL.dll SHA256
-```
-
-Expected hashes (also in `SHA256SUMS.txt`):
+Full hashes (`SHA256SUMS.txt` has them too):
 
 | File | SHA-256 |
 |---|---|
@@ -108,70 +97,9 @@ Expected hashes (also in `SHA256SUMS.txt`):
 | `gigadevice\GD_DFU_DLL.dll` | `c97d2a6a94747d2c7532bb98ed447008319c3d74e87d96cdf018b54602a5ad14` |
 | `gigadevice\vcruntime140.dll` | `9faeaa45e8cc986af56f28350b38238b03c01c355e9564b849604b8d690919c5` |
 
-What you are running (so you do not have to trust us):
+---
 
-- `flash.bat` — 7 lines: starts `flash.ps1` in Windows' own 32-bit PowerShell
-  (needed because GigaDevice's DLL is 32-bit).
-- `flash.ps1` — plain text, commented, open it in Notepad. It only talks to the
-  tablet's update mode (USB `28E9:0189`), uses your `gigadevice\` copies first
-  (not included — download once, hash-checked against the tested version),
-  refuses any
-  bootloader other than the exact H420X/T223 one, backs up the current
-  firmware, writes ONLY the 32,000-byte application area at `0x08004000`, and
-  verifies every byte. It never writes the bootloader or the settings page. No
-  admin rights, nothing installed; the only internet use is opening
-  GigaDevice's page if you press `D` in the download fallback.
-- `SHA256SUMS.txt` — hashes of the firmwares, scripts, and (for verifying your
-  downloads) the two gigadevice files. `flash.ps1`
-  refuses a firmware whose hash does not match.
-- Files created next to `flash.bat` when you run it: `backups\` (your
-  firmware), `gigadevice_dll_location.txt` (which DLL copy was used).
-
-## Firmware
-
-All four custom firmwares apply zero cursor smoothing: every report comes only
-from that scan's fresh coil reads, with no averaging and no added latency.
-
-- `rhythm900.bin` — ~910 reports/s. Cursor only: pressure, tip and pen buttons
-  are OFF (use keyboard keys for hits). For rhythm games. Hardware-tested:
-  910–915 reports/s, zero dropped reports, steady jitter 2.7/3.4 units, no
-  jumps at coil crossings in fast aim.
-- `rhythm750.bin` — ~765 reports/s. Cursor only, like rhythm900, with slower
-  and more careful coil timing. The cleanest high-rate option.
-  Hardware-tested: 766 reports/s, zero dropped reports, no jumps at coil
-  crossings in any test.
-- `pen500.bin` — Exactly 500 reports/s, one every 2 ms. Pressure, tip and pen
-  buttons ON. Reports are timed to the USB frames, so they arrive perfectly
-  evenly. Hardware-tested (500.29/s, no jumps at coil crossings).
-- `pen333.bin` — Exactly 333 reports/s, one every 3 ms. Same as pen500, with
-  one report per 3 ms and more frequent pen-frequency checks.
-- Pressure on the pen tiers is read fresh from the pen every scan, as a
-  straight line (no averaging and no pressure curve); Huion's tip threshold
-  and button detection are kept.
-- `stock.bin` — Huion's original factory firmware (application T223_220707),
-  dumped from a retail H420X. Installing it puts the tablet back exactly as it
-  came.
-
-Hardware evidence for the release set (2026-09-30 bench sessions):
-
-| File | Measured result |
-|---|---|
-| `rhythm900.bin` | 910–915/s, 0 invalid, steady jitter 2.7/3.4, 0% fast-aim crossing leaps |
-| `rhythm750.bin` | 766/s in every trial, 0 invalid, 0% crossing leaps, back-steps ≤ 0.54% |
-| `pen500.bin` | Module-only rebuild of the hardware-clean pen500 (500.29/s, no crossing leaps). Changed bytes vs the tested image are only inside the tracker cave (learner guards, `LCL3` tag, u16 log table); same code as the tested rhythm tiers |
-| `pen333.bin` | Module-only rebuild of pen333 (same cave-only difference) |
-| `stock.bin` | Byte-identical to the first original application dump, region `[0x4000, 0xBD00)` |
-
-The pen tiers were deliberately not re-flashed after the cave-only rebuild (user
-decision); the changed code is the same tracker already hardware-tested in the
-rhythm tiers. Emulator check (`verify_rhythm3.py`) is `PASS_offline_only` on all
-four customs — that proves control flow/coordinates, never analog settling or
-USB rate.
-
-Previous release (`rhythm960` + `pen600`/`pen300`) is archived in the dev
-workspace under `release/archive/2026-09-29_rhythm960_pen600_pen300/` and is
-superseded: `rhythm960` had coil-boundary notches, `pen600`/`pen300` had uneven
-delivery and the old estimator's seams.
+## Details — how things came to be
 
 ## What changed from Huion's stock firmware (short version)
 
@@ -368,8 +296,7 @@ settings never written, every byte verified.
    copies
    first — next to the script, then `gigadevice\` — and only then falls back
    to the remembered path, the usual download folders, a still-packed
-   All-In-One download, or asking you to browse (re-download links are in the
-   `gigadevice` section near the top of this file). The chosen DLL's hash is
+   All-In-One download, or asking you to browse (links in §1 above). The chosen DLL's hash is
    compared against the tested version; a different version needs an explicit
    `YES`. (`vcruntime140.dll` sits beside it because the DLL needs it, and the
    script loads the DLL from its exact folder. The DLL is 32-bit, which is why
