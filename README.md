@@ -16,11 +16,11 @@ kept, so the tablet can always be recovered.
 The firmware image is **not stored in this repository**. Every release image is
 built by GitHub Actions from the source in `firmware/` and attached to the
 [latest release](https://github.com/WillDevE/h420xfirmware/releases/latest).
-Either:
 
-- download `rhythm1000.bin` from that page and put it in `firmware\`, or
-- double-click `get-firmware.bat`, which downloads it and checks its SHA-256
-  against `SHA256SUMS.txt`.
+- **Direct download:** [`rhythm1000.bin`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/rhythm1000.bin)
+  — put it in `firmware\`.
+- **Or double-click `get-firmware.bat`**, which downloads it and checks its
+  SHA-256 against `SHA256SUMS.txt`.
 
 The release image's SHA-256 is:
 
