@@ -1,0 +1,8 @@
+# Local install/backup state
+backups/
+gigadevice/
+gigadevice_dll_location.txt
+
+# Build output and downloaded release image (the image is built by CI)
+firmware/build/
+firmware/*.bin

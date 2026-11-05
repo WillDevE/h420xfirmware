@@ -1,0 +1,90 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install pinned Arm GNU Toolchain
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $url = 'https://developer.arm.com/-/media/Files/downloads/gnu/12.2.mpacbti-rel1/binrel/arm-gnu-toolchain-12.2.mpacbti-rel1-mingw-w64-i686-arm-none-eabi.zip'
+          $want = '9f5f5492447212001aa8b708e237cdfecb1296ba0f1c699e2aa2fd87249e5b00'
+          $zip = Join-Path $env:RUNNER_TEMP 'arm-toolchain.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'arm-toolchain'
+          curl.exe -L --fail --silent --show-error -o $zip $url
+          if ($LASTEXITCODE -ne 0) { throw 'Arm toolchain download failed' }
+          $got = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLowerInvariant()
+          if ($got -ne $want) { throw "Arm toolchain SHA-256 mismatch: $got" }
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $bin = Join-Path $dir 'bin'
+          if (-not (Test-Path (Join-Path $bin 'arm-none-eabi-gcc.exe'))) {
+            $top = Get-ChildItem $dir -Directory | Select-Object -First 1
+            $bin = Join-Path $top.FullName 'bin'
+          }
+          if (-not (Test-Path (Join-Path $bin 'arm-none-eabi-gcc.exe'))) { throw 'Arm toolchain bin directory not found' }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          & (Join-Path $bin 'arm-none-eabi-gcc.exe') --version
+
+      - name: Build rhythm1000
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./firmware/build.ps1 -Profile rhythm900 -Robust -EdgeExt -SamptModes -LoopMode 3 -LoopArm -Release -CadReset 256 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -Clean
+
+      - name: Verify image (96 checks)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $elf = Get-ChildItem firmware/build/*.elf | Select-Object -First 1
+          $app = Get-ChildItem firmware/build/*_app.bin | Select-Object -First 1
+          if (-not $elf -or -not $app) { throw 'Build outputs not found' }
+          python firmware/tools/verify_image.py --elf $elf.FullName --bin $app.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'verify_image.py failed' }
+
+      - name: Stage image and check the tested hash
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = Get-ChildItem firmware/build/*_app.bin | Select-Object -First 1
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
+          $want = '00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171'
+          if ($hash -ne $want) { throw "Built image SHA-256 $hash does not match the tested image $want" }
+          Copy-Item $app.FullName rhythm1000.bin
+          "$hash  rhythm1000.bin" | Out-File -Encoding ascii rhythm1000.bin.sha256
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm1000
+          path: |
+            rhythm1000.bin
+            rhythm1000.bin.sha256
+
+      - name: Publish release asset (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag rhythm1000.bin --clobber
+          } else {
+            gh release create $tag rhythm1000.bin --title "H420X clean-room firmware $tag" --notes "Built from the source in this repository by GitHub Actions. See README.md for install and verification instructions."
+          }
