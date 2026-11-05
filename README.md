@@ -1,9 +1,9 @@
 # H420X (T223) clean-room firmware
 
-A from-scratch replacement firmware for the Huion H420X pen tablet, made for
-low-latency rhythm-game aim. It is **not** a patched Huion image and contains no
-Huion application code. The stock 16 KB bootloader and its DFU recovery path are
-kept, so the tablet can always be recovered.
+A from-scratch replacement firmware for the Huion H420X pen tablet, built for
+low-latency rhythm-game aim. It's not a patched Huion image and doesn't contain
+any Huion application code. The stock 16 KB bootloader and its DFU recovery path
+are left alone, so you can always recover the tablet.
 
 [Flash it](#flash-it) · [What it is](#what-it-is) · [How it is made](#how-it-is-made) ·
 [How it was tested](#how-it-was-tested-the-boring-part) · [Limits and TODO](#limits-and-todo) ·
@@ -13,8 +13,8 @@ kept, so the tablet can always be recovered.
 
 ### 1. Get the image (one file)
 
-The firmware image is **not stored in this repository**. Every release image is
-built by GitHub Actions from the source in `firmware/` and attached to the
+The firmware image isn't stored in this repo. Every release image is built by
+GitHub Actions from the source in `firmware/` and attached to the
 [latest release](https://github.com/WillDevE/h420xfirmware/releases/latest).
 
 - **Direct download:** [`rhythm1000.bin`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/rhythm1000.bin)
@@ -32,8 +32,8 @@ The flasher checks it again before writing.
 
 ### 2. Add GigaDevice's USB library (one time)
 
-The flasher talks to the tablet through GigaDevice's 32-bit USB library. It is
-not included. Download GigaDevice's free **GD32 All-In-One Programmer**:
+The flasher talks to the tablet through GigaDevice's 32-bit USB library, which
+isn't included. Download GigaDevice's free **GD32 All-In-One Programmer**:
 
 https://www.gd32mcu.com/en/download?kw=GD32+All-In-One+Programmer
 
@@ -49,49 +49,53 @@ https://www.gd32mcu.com/en/download?kw=GD32+Dfu+Drivers
 
 `flash.bat` checks `GD_DFU_DLL.dll` against the tested hash before using it.
 
-### 3. Flash
+### 3. Back up first, then flash
 
-1. Double-click `flash.bat`.
-2. Choose `1` for `rhythm1000.bin`.
-3. Unplug the USB cable and plug it back in when told.
-4. Wait for `DONE`, then unplug and plug once more.
-5. To undo, run `flash.bat`, choose `R`, and pick a backup.
+Before your first install, run `flash.bat` and choose `S`. It reads the firmware
+that's on the tablet now (most likely the stock Huion firmware) twice and saves
+it in `backups\`. It doesn't write anything. Keep that file — it's your way back
+to stock.
 
-Every install first reads the current application twice and saves it in
-`backups\`. The flasher then erases and writes **only** the 32,000-byte
-application area at `0x08004000`, and reads it back byte for byte. It never
-writes the bootloader (`0x08000000`) or the settings page (`0x0800FC00`).
+Then:
+
+1. Run `flash.bat` again and choose `1` for `rhythm1000.bin`.
+2. Unplug the USB cable and plug it back in when told.
+3. Wait for `DONE`, then unplug and plug once more.
+4. To undo, run `flash.bat`, choose `R`, and pick a backup.
+
+Every install also saves a backup first, so you get a fresh restore point each
+time. The flasher then erases and writes **only** the 32,000-byte application
+area at `0x08004000`, and reads it back byte for byte. It never writes the
+bootloader (`0x08000000`) or the settings page (`0x0800FC00`).
 
 ## What it is
 
-A cursor-only 1 kHz-class build for rhythm games:
+This is a cursor-only build for rhythm games. The short version:
 
 - **Raw, same-frame position.** Every report is the fit from that frame's own
-  coil readings. There is no output filter, smoothing, averaging across frames,
-  prediction or added delay.
+  coil readings. No output filter, no smoothing, no averaging across frames, no
+  prediction, no added delay. What the tablet saw is what you get.
 - **Seven reads per frame** (four X, three Y), 32 excitation pulses, a long ADC
   sample window, and a fixed cadence with a 1002 µs frame floor. The device
-  frame is 998 Hz; OpenTabletDriver sees about 1 kHz. The bench host reports
-  ~979 Hz because the host accepts one report every 2 ms for 11 frames every
-  ~525 reports, not because the tablet is slow.
+  frame is 998 Hz; OpenTabletDriver sees about 1 kHz. The bench host reports a
+  bit lower because of a host-side 2 ms burst, not because the tablet is slow.
 - **Stock USB identity.** VID/PID `256C:0064`, manufacturer `HUION`, product
-  `Huion Tablet_H420X`, report ID 8. OpenTabletDriver and WebHID treat it as a
+  `Huion Tablet_H420X`, report ID 8. OpenTabletDriver and WebHID just see a
   normal H420X.
-- **Late connect and quiet idle.** USB connects after sensing/ADC init, and the
-  old 10 ms heartbeat is gone, so there is no ~78 Hz idle stream.
+- **Late connect and quiet idle.** USB comes up after sensing/ADC init, and the
+  old 10 ms heartbeat is gone, so there's no ~78 Hz idle stream.
 - **Application only.** The stock bootloader and recovery path are untouched.
-- **Cursor only.** No pressure, tip switch or pen buttons in this image. A
-  lower-rate pressure build is the next TODO.
+- **Cursor only.** No pressure, tip switch or pen buttons in this image.
 
 ## How it is made
 
-The firmware is clean-room C: about 5,700 lines in `firmware/src/`, plus the
-vendored TinyUSB device stack (MIT) in `firmware/third_party/tinyusb/`. It is
-built with `arm-none-eabi-gcc` and a linker script that places everything in the
-32,000-byte application slot at `0x08004000`. There is no make/cmake dependency:
+The firmware is clean-room C — about 5,700 lines in `firmware/src/` — plus the
+vendored TinyUSB device stack (MIT) in `firmware/third_party/tinyusb/`. It builds
+with `arm-none-eabi-gcc` and a linker script that puts everything in the
+32,000-byte application slot at `0x08004000`. No make/cmake needed:
 `firmware/build.ps1` compiles and links it directly.
 
-The exact build for the release image:
+Here's the exact build for the release image:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
@@ -102,16 +106,16 @@ powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
 ```
 
 The compiler is pinned to **Arm GNU Toolchain 12.2.MPACBTI-Rel1**. Different
-compiler versions can generate different code, so the pin is part of the
+compiler versions can generate different code, so that pin is part of the
 reproducibility promise.
 
 ### Built by GitHub Actions, not uploaded from a desktop
 
-There is no firmware binary in the repository. The workflow in
+There's no firmware binary in the repo. The workflow in
 `.github/workflows/build.yml` runs on every push:
 
 1. downloads the pinned Arm toolchain from Arm and checks its SHA-256,
-2. builds the image from the source in this repository,
+2. builds the image from the source here,
 3. runs `firmware/tools/verify_image.py` — 96 independent checks of the ELF,
    USB descriptors, HID report descriptor, vector table and DFU padding,
 4. asserts the finished image's SHA-256 is exactly
@@ -120,11 +124,13 @@ There is no firmware binary in the repository. The workflow in
 5. uploads the image as a workflow artifact, and, on a version tag, attaches it
    to the GitHub release.
 
-If any step fails, there is no release. The binary you download is the build the
+If any step fails, there's no release. The binary you download is the build the
 public workflow produced from the public source, and you can reproduce it
-yourself with the command above. That is the point of the exercise.
+yourself with the command above. That's the whole point.
 
 ### Verify it yourself
+
+If you want to check the file yourself:
 
 ```powershell
 certutil -hashfile firmware\rhythm1000.bin SHA256
@@ -135,27 +141,28 @@ before writing.
 
 ## How it was tested (the boring part)
 
-This did not come from one clever idea. It took **38 firmware rounds**, **117
+This didn't come from one clever idea. It took **38 firmware rounds**, **117
 candidate build folders**, and **228 distinct images built** over about **five
-weeks**. In that time the bench recorded **113 sessions**, **290 trials**, and
+weeks**. Along the way the bench recorded **113 sessions**, **290 trials**, and
 **4.75 million pen reports**. About **115 images were flashed** to the tablet;
-**97** distinct images actually ran on hardware. The clean-room application is
-5,700 lines of C.
+**97** distinct images actually ran on hardware. The clean-room app is 5,700
+lines of C.
 
 The bench measures the pen directly over USB: nine-point steady maps (center
-plus the eight axis midpoints), slow circles in both directions, paced fast-aim
-reversals, and lab hover captures. The numbers are raw position scatter in
-tablet units and millimetres, with no output filtering, so every improvement had
-to come from the sensing, estimator or timing. Early clean-room still-pen
-captures were around 0.1 mm; the final nine-point median is **0.035 mm** X and
-**0.010 mm** Y, with the center at 0.021 / 0.008 mm and the moving circle at
-0.013 / 0.007 mm.
+plus the eight axis midpoints), slow circles both ways, paced fast-aim reversals,
+and lab hover captures. Everything is raw position scatter in tablet units and
+millimetres, with no output filtering, so every improvement had to come from the
+sensing, estimator or timing. Early clean-room still-pen captures were around
+0.1 mm; the final nine-point median is **0.035 mm** X and **0.010 mm** Y, with
+the center at 0.021 / 0.008 mm and the moving circle at 0.013 / 0.007 mm.
 
-The last rounds were mostly subtracting the last few units: ADC sample window,
-cadence reset, stock USB identity, late connect, quiet idle, and a lot of
-rejected ideas. The current image is the one that survived.
+The last rounds were mostly about shaving off the last few units: ADC sample
+window, cadence reset, stock USB identity, late connect, quiet idle, and a pile
+of rejected ideas. The current image is the one that survived.
 
 ## Limits and TODO
+
+What's not done yet:
 
 - **Cursor only.** No pressure, tip switch or pen buttons. The next build is a
   lower-rate pen image (target 500/333 Hz) using the clean-room pen path with
