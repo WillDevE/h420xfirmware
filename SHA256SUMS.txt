@@ -1,12 +1,11 @@
 # rhythm1000.bin is built by GitHub Actions from this repository and attached
 # to the GitHub release. This is the SHA-256 of the tested release image; the
 # flasher checks the downloaded file against it before writing.
+#
+# The release zip (H420X-Flasher.zip) has its own SHA256SUMS.txt covering the
+# packaged scripts and README. Script hashes are not listed here because Git
+# line-ending conversion makes them checkout-dependent.
 00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171  rhythm1000.bin
-
-398013125d7d927fa8a17f625bdcc655f7830930a4757533fde893229c113833  flash.ps1
-786514147c11715038b4c93f14659609983c3d3b16ab515f1368b960f9c22f95  flash.bat
-dccbfed4a157c8e04dc9505f1c289ea0f66b80ac05ecdd7ad66b3d4f148b554a  get-firmware.ps1
-223f5cedd71832e4505434c82950780a1ef34ed26ba084f9f3750ddb6588cbcf  get-firmware.bat
 
 c97d2a6a94747d2c7532bb98ed447008319c3d74e87d96cdf018b54602a5ad14  gigadevice/GD_DFU_DLL.dll
 9faeaa45e8cc986af56f28350b38238b03c01c355e9564b849604b8d690919c5  gigadevice/vcruntime140.dll
