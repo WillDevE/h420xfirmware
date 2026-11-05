@@ -67,6 +67,59 @@ jobs:
           Copy-Item $app.FullName rhythm1000.bin
           "$hash  rhythm1000.bin" | Out-File -Encoding ascii rhythm1000.bin.sha256
 
+      - name: Build flasher package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'H420X-Flasher'
+          New-Item -ItemType Directory -Force -Path $stage, "$stage\firmware", "$stage\gigadevice" | Out-Null
+          Copy-Item -Path flash.bat, flash.ps1, get-firmware.bat, get-firmware.ps1, LICENSE, NOTICE.md -Destination $stage
+          Copy-Item -Path rhythm1000.bin -Destination (Join-Path $stage 'firmware\rhythm1000.bin')
+          Copy-Item -Path .github/release/README.txt -Destination (Join-Path $stage 'README.txt')
+          Copy-Item -Path .github/release/gigadevice-readme.txt -Destination (Join-Path $stage 'gigadevice\README.txt')
+
+          $ref = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA }
+          @(
+            'Source code for this build:',
+            "https://github.com/WillDevE/h420xfirmware/tree/$ref/firmware",
+            '',
+            'That tree is the exact source used by the GitHub Actions workflow.',
+            'The release page also has auto-generated source code zip/tar.gz files.',
+            '',
+            'License: GPL-3.0-or-later (see LICENSE). TinyUSB: MIT (see NOTICE.md).'
+          ) | Out-File -Encoding ascii (Join-Path $stage 'SOURCE.txt')
+
+          $pairs = @(
+            @('firmware\rhythm1000.bin', 'rhythm1000.bin'),
+            @('flash.ps1', 'flash.ps1'),
+            @('flash.bat', 'flash.bat'),
+            @('get-firmware.ps1', 'get-firmware.ps1'),
+            @('get-firmware.bat', 'get-firmware.bat'),
+            @('README.txt', 'README.txt'),
+            @('SOURCE.txt', 'SOURCE.txt'),
+            @('LICENSE', 'LICENSE'),
+            @('NOTICE.md', 'NOTICE.md'),
+            @('gigadevice\README.txt', 'gigadevice/README.txt')
+          )
+          $sums = foreach ($pair in $pairs) {
+            $fileHash = (Get-FileHash -Algorithm SHA256 -Path (Join-Path $stage $pair[0])).Hash.ToLowerInvariant()
+            "$fileHash  $($pair[1])"
+          }
+          $sums | Out-File -Encoding ascii (Join-Path $stage 'SHA256SUMS.txt')
+
+          Compress-Archive -Path $stage -DestinationPath 'H420X-Flasher.zip' -Force
+          $versioned = "H420X-Flasher-$($env:GITHUB_REF_NAME).zip"
+          Copy-Item -Path 'H420X-Flasher.zip' -Destination $versioned -Force
+          $zipHash = (Get-FileHash -Algorithm SHA256 -Path 'H420X-Flasher.zip').Hash.ToLowerInvariant()
+          "$zipHash  H420X-Flasher.zip" | Out-File -Encoding ascii 'H420X-Flasher.zip.sha256'
+          "$zipHash  $versioned" | Out-File -Encoding ascii "$versioned.sha256"
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'H420X-Flasher.zip'))
+          $zip.Entries | Select-Object -ExpandProperty FullName
+          $zip.Dispose()
+          Write-Host "ZIP SHA-256: $zipHash"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -74,6 +127,9 @@ jobs:
           path: |
             rhythm1000.bin
             rhythm1000.bin.sha256
+            H420X-Flasher.zip
+            H420X-Flasher-*.zip
+            H420X-Flasher*.sha256
 
       - name: Publish release asset (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -82,9 +138,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
+          $assets = @(
+            'H420X-Flasher.zip',
+            "H420X-Flasher-$tag.zip",
+            'H420X-Flasher.zip.sha256',
+            "H420X-Flasher-$tag.zip.sha256",
+            'rhythm1000.bin',
+            'rhythm1000.bin.sha256'
+          )
+          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and the firmware. Advanced: rhythm1000.bin is the standalone image. Both are built from the source in this repository by GitHub Actions; see README.md for install and verification instructions."
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag rhythm1000.bin --clobber
+            gh release upload $tag @assets --clobber
+            gh release edit $tag --notes $notes
           } else {
-            gh release create $tag rhythm1000.bin --title "H420X clean-room firmware $tag" --notes "Built from the source in this repository by GitHub Actions. See README.md for install and verification instructions."
+            gh release create $tag @assets --title "H420X clean-room firmware $tag" --notes $notes
           }

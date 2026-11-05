@@ -8,7 +8,8 @@ behavior. It contains no Huion application code and no Huion firmware dump.
 
 `rhythm1000.bin` is built by GitHub Actions from this repository —
 `.github/workflows/build.yml` — and attached to the GitHub release. It is not
-stored in the repository.
+stored in the repository. The workflow also packages it in
+`H420X-Flasher.zip` together with the flasher and the quick-start README.
 
 ```text
 SHA-256 00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171

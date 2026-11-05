@@ -6,3 +6,7 @@ gigadevice_dll_location.txt
 # Build output and downloaded release image (the image is built by CI)
 firmware/build/
 firmware/*.bin
+
+# CI release packaging output
+H420X-Flasher*.zip
+H420X-Flasher*.sha256

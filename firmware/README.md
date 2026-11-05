@@ -72,8 +72,9 @@ HID report descriptors and DFU padding directly.
 3. runs the verifier,
 4. fails unless the finished image hash is
    `00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171`,
-5. uploads `rhythm1000.bin` as an artifact and, on a version tag, to the
-   GitHub release.
+5. assembles `H420X-Flasher.zip` (flasher + built image + README/hashes),
+6. uploads the zip and the standalone image as artifacts and, on a version tag,
+   attaches them and their SHA-256 files to the GitHub release.
 
-The release asset is therefore the workflow's output, not a binary built on a
+The release assets are therefore the workflow's output, not binaries built on a
 developer machine.

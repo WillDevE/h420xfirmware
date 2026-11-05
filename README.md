@@ -11,18 +11,19 @@ are left alone, so you can always recover the tablet.
 
 ## Flash it
 
-### 1. Get the image (one file)
+### 1. Get the flasher package
 
-The firmware image isn't stored in this repo. Every release image is built by
-GitHub Actions from the source in `firmware/` and attached to the
-[latest release](https://github.com/WillDevE/h420xfirmware/releases/latest).
+The normal download is a single zip with the flasher and the firmware already
+inside. It's built by GitHub Actions from the source in `firmware/` and attached
+to the [latest release](https://github.com/WillDevE/h420xfirmware/releases/latest).
 
-- **Direct download:** [`rhythm1000.bin`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/rhythm1000.bin)
-  — put it in `firmware\`.
-- **Or double-click `get-firmware.bat`**, which downloads it and checks its
-  SHA-256 against `SHA256SUMS.txt`.
+- **Download:** [`H420X-Flasher.zip`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/H420X-Flasher.zip)
+  — extract it anywhere.
+- **Prefer the raw image?** It's attached to the release as
+  [`rhythm1000.bin`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/rhythm1000.bin).
 
-The release image's SHA-256 is:
+The zip contains `flash.bat`, `flash.ps1`, `firmware\rhythm1000.bin`, the
+GigaDevice instructions, and a `SHA256SUMS.txt`. The firmware's SHA-256 is:
 
 ```
 00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171
@@ -37,7 +38,8 @@ isn't included. Download GigaDevice's free **GD32 All-In-One Programmer**:
 
 https://www.gd32mcu.com/en/download?kw=GD32+All-In-One+Programmer
 
-Copy these two files next to each other into `gigadevice\`:
+Inside the extracted `H420X-Flasher` folder, copy these two files next to each
+other into `gigadevice\`:
 
 - `GD_DFU_DLL.dll` (tested v5.4.0.42035)
 - `vcruntime140.dll`
@@ -51,10 +53,10 @@ https://www.gd32mcu.com/en/download?kw=GD32+Dfu+Drivers
 
 ### 3. Back up first, then flash
 
-Before your first install, run `flash.bat` and choose `S`. It reads the firmware
-that's on the tablet now (most likely the stock Huion firmware) twice and saves
-it in `backups\`. It doesn't write anything. Keep that file — it's your way back
-to stock.
+From the extracted `H420X-Flasher` folder, run `flash.bat` and choose `S`. It
+reads the firmware that's on the tablet now (most likely the stock Huion
+firmware) twice and saves it in `backups\`. It doesn't write anything. Keep that
+file — it's your way back to stock.
 
 Then:
 
@@ -121,8 +123,10 @@ There's no firmware binary in the repo. The workflow in
 4. asserts the finished image's SHA-256 is exactly
    `00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171`,
    the image that was tested on hardware,
-5. uploads the image as a workflow artifact, and, on a version tag, attaches it
-   to the GitHub release.
+5. assembles the user-facing `H420X-Flasher.zip` (flasher + built image +
+   README/hashes),
+6. uploads everything as workflow artifacts and, on a version tag, attaches the
+   zip, the standalone image and their SHA-256 files to the GitHub release.
 
 If any step fails, there's no release. The binary you download is the build the
 public workflow produced from the public source, and you can reproduce it
