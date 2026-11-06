@@ -1,9 +1,9 @@
 # H420X (T223) clean-room firmware
 
 A from-scratch replacement firmware for the Huion H420X pen tablet, built for
-low-latency rhythm-game aim. It's not a patched Huion image and doesn't contain
+low-latency rhythm-game (ozu) aim. It's not a patched Huion image and doesn't contain
 any Huion application code. The stock 16 KB bootloader and its DFU recovery path
-are left alone, so you can always recover the tablet.
+are left alone, so you can always recover the tablet (pls dont flash over it manually or its joever).
 
 [Flash it](#flash-it) · [What it is](#what-it-is) · [How it is made](#how-it-is-made) ·
 [How it was tested](#how-it-was-tested-the-boring-part) · [Limits and TODO](#limits-and-todo) ·
@@ -16,6 +16,8 @@ are left alone, so you can always recover the tablet.
 The normal download is a single zip with the flasher and the firmware already
 inside. It's built by GitHub Actions from the source in `firmware/` and attached
 to the [latest release](https://github.com/WillDevE/h420xfirmware/releases/latest).
+
+(why did I do it this way? tl;dr so you dont download a file you can't easily read/verify the source of, basically I can't hide evil stuff in it)
 
 - **Download:** [`H420X-Flasher.zip`](https://github.com/WillDevE/h420xfirmware/releases/latest/download/H420X-Flasher.zip)
   — extract it anywhere.
@@ -70,9 +72,9 @@ time. The flasher then erases and writes **only** the 32,000-byte application
 area at `0x08004000`, and reads it back byte for byte. It never writes the
 bootloader (`0x08000000`) or the settings page (`0x0800FC00`).
 
-## What it is
+## What is all of this
 
-This is a cursor-only build for rhythm games. The short version:
+This is firmware for the h420x focused on rhythm games. The short version:
 
 - **Raw, same-frame position.** Every report is the fit from that frame's own
   coil readings. No output filter, no smoothing, no averaging across frames, no
@@ -112,6 +114,7 @@ compiler versions can generate different code, so that pin is part of the
 reproducibility promise.
 
 ### Built by GitHub Actions, not uploaded from a desktop
+(this is the part that prevents me from hiding evil stuff in here)
 
 There's no firmware binary in the repo. The workflow in
 `.github/workflows/build.yml` runs on every push:
@@ -130,7 +133,7 @@ There's no firmware binary in the repo. The workflow in
 
 If any step fails, there's no release. The binary you download is the build the
 public workflow produced from the public source, and you can reproduce it
-yourself with the command above. That's the whole point.
+yourself with the command above. That's the whole shabang.
 
 ### Verify it yourself
 
@@ -145,20 +148,14 @@ before writing.
 
 ## How it was tested (the boring part)
 
-This didn't come from one clever idea. It took **38 firmware rounds**, **117
+It took **38 firmware rounds**, **117
 candidate build folders**, and **228 distinct images built** over about **five
-weeks**. Along the way the bench recorded **113 sessions**, **290 trials**, and
+weeks** (not really it was on and off). Along the way the bench recorded **113 sessions**, **290 trials**, and
 **4.75 million pen reports**. About **115 images were flashed** to the tablet;
 **97** distinct images actually ran on hardware. The clean-room app is 5,700
 lines of C.
 
-The bench measures the pen directly over USB: nine-point steady maps (center
-plus the eight axis midpoints), slow circles both ways, paced fast-aim reversals,
-and lab hover captures. Everything is raw position scatter in tablet units and
-millimetres, with no output filtering, so every improvement had to come from the
-sensing, estimator or timing. Early clean-room still-pen captures were around
-0.1 mm; the final nine-point median is **0.035 mm** X and **0.010 mm** Y, with
-the center at 0.021 / 0.008 mm and the moving circle at 0.013 / 0.007 mm.
+I had a personal test bench thing help me with trying to get it stable and collecting data then fed it back into the token burning AI loop and repeated
 
 The last rounds were mostly about shaving off the last few units: ADC sample
 window, cadence reset, stock USB identity, late connect, quiet idle, and a pile
@@ -169,10 +166,10 @@ of rejected ideas. The current image is the one that survived.
 What's not done yet:
 
 - **Cursor only.** No pressure, tip switch or pen buttons. The next build is a
-  lower-rate pen image (target 500/333 Hz) using the clean-room pen path with
+  lower-rate pen image (target maybe 800 or 500/333 Hz) using the clean-room pen path with
   the same ADC window and cadence reset.
 - **Host rate.** The device frame is 1002 µs (998 Hz). The host-side 2 ms burst
-  is a host reader artifact; OpenTabletDriver itself reaches ~1 kHz.
+  is a host reader artifact; OpenTabletDriver itself reaches ~1 kHz. (I don't understand what this means yet I need to read more, had a version that was pinned to 998hz but was way too unstable)
 - **Bootloader.** Only the stock H420X/T223 bootloader is supported. The flasher
   refuses anything else.
 - **Not a Huion product.** Huion and H420X are trademarks of their respective
