@@ -49,16 +49,18 @@ The flasher checks each one again before writing.
 |---|---|---|
 | Status | **Stable, recommended** | **WIP / experimental** |
 | Bench report rate | ~979 Hz | ~994 Hz |
-| Host 2 ms gaps | ~2.1 %, in short ~20 ms runs every ~0.5 s | ~0.56 %, scattered, no long runs |
+| 2 ms report gaps | ~2.1 %, in short ~20 ms runs every ~0.5 s | ~0.56 %, scattered ~180 ms beat, no long runs |
 | Residual scatter (9-point median) | X 3.2 / Y 1.6 units | X 1.6 / Y 2.1 units |
 | Pressure / tip / buttons | none | none |
 
 Both images are raw and same-frame, with no smoothing or added delay. The WIP
 image runs the report cadence slightly ahead of the host poll (985 µs frame
 floor) so a fresh report is always queued. That raises the rate and lowers X
-scatter, but the remaining host-side 2 ms gaps show up as scattered drops, and
-Y scatter is a little higher. It is not the default yet; switch back to image 1
-if it feels worse.
+scatter, but about 0.6 % of reports still land at 2 ms as a deterministic
+~180 ms beat, and Y scatter is a little higher. The cause is still being
+measured (the device frame may be ~1005 µs against the 1 ms poll, or the host
+may be skipping a poll); that is why it is WIP. Switch back to image 1 if it
+feels worse.
 
 Scatter numbers are from the 9-point bench sessions and vary a little with pen
 position and session.
@@ -113,7 +115,7 @@ This is firmware for the h420x focused on rhythm games. The short version:
 - **Seven reads per frame** (four X, three Y), 32 excitation pulses, a long ADC
   sample window, and a fixed cadence with a 1002 µs frame floor. The device
   frame is 998 Hz; OpenTabletDriver sees about 1 kHz. The bench host reports a
-  bit lower because of a host-side 2 ms burst, not because the tablet is slow.
+  bit lower because of a 2 ms report-time beat, not because the tablet is slow.
 - **Stock USB identity.** VID/PID `256C:0064`, manufacturer `HUION`, product
   `Huion Tablet_H420X`, report ID 8. OpenTabletDriver and WebHID just see a
   normal H420X.
@@ -224,11 +226,13 @@ What's not done yet:
 - **Cursor only.** No pressure, tip switch or pen buttons. The next build is a
   lower-rate pen image (target maybe 800 or 500/333 Hz) using the clean-room pen path with
   the same ADC window and cadence reset.
-- **Host rate.** The stable image's device frame is 1002 µs (998 Hz); the WIP
-  image's is 985 µs. The host-side 2 ms gaps are a Windows poll limiter, not
-  the device frame - OpenTabletDriver itself reaches ~1 kHz. The WIP image
-  cannot force the host to poll every 1 ms, which is why it still shows about
-  0.6 % scattered 2 ms gaps.
+- **Report timing.** The stable image's device frame is ~1002 µs (998 Hz); the
+  WIP image uses a 985 µs floor. The remaining 2 ms gaps are a deterministic
+  ~180 ms beat, not random host load, and the gaming mouse was ruled out. A
+  frame-period diagnostic is measuring the actual WIP device frame next; if it
+  is ~1005 µs, a keep-alive duplicate report is the next candidate, and if it
+  is 1000.0 µs the fix is host-side. This is why the WIP image is not the
+  default yet.
 - **Bootloader.** Only the stock H420X/T223 bootloader is supported. The flasher
   refuses anything else.
 - **Not a Huion product.** Huion and H420X are trademarks of their respective

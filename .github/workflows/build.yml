@@ -166,7 +166,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and two cursor-only images. The flasher labels image 1 (rhythm1000.bin) as the stable, recommended release and image 2 (rhythm1015-wip.bin) as WIP: higher report rate and lower overall scatter, but about 0.6% of host polls land at 2 ms (scattered drops, no long bursts). Advanced: both standalone images and their SHA-256 files are attached. Both images are built from the source in this repository by GitHub Actions; see README.md for the comparison, install and verification instructions."
+          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and two cursor-only images. The flasher labels image 1 (rhythm1000.bin) as the stable, recommended release and image 2 (rhythm1015-wip.bin) as WIP: higher report rate and lower overall scatter, but about 0.6% of reports land at 2 ms in a deterministic ~180 ms beat (no long bursts; cause under investigation). Advanced: both standalone images and their SHA-256 files are attached. Both images are built from the source in this repository by GitHub Actions; see README.md for the comparison, install and verification instructions."
           gh release create $tag H420X-Flasher.zip --verify-tag --title "H420X clean-room firmware $tag" --notes $notes 2>$null
           gh release upload $tag H420X-Flasher.zip "H420X-Flasher-$tag.zip" H420X-Flasher.zip.sha256 "H420X-Flasher-$tag.zip.sha256" rhythm1000.bin rhythm1000.bin.sha256 rhythm1015-wip.bin rhythm1015-wip.bin.sha256 --clobber
           if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }

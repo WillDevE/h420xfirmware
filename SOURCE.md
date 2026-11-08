@@ -32,7 +32,7 @@ hashes. The same builds can be reproduced locally with the commands in
 - **Stable:** 1002 µs frame floor.
 - **WIP:** 985 µs frame floor, which queues the next report earlier and raises
   the host-observed rate. It is labeled WIP in the flasher and README because
-  the remaining host-side 2 ms gaps still need evaluation.
+  the remaining 2 ms gaps (a deterministic ~180 ms beat) still need evaluation.
 - 32,000-byte application image at `0x08004000`; the stock 16 KB bootloader at
   `0x08000000` and the settings page at `0x0800FC00` are never written by the
   flasher.

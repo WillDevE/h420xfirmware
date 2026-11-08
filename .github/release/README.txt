@@ -16,7 +16,7 @@ Which image should I use?
    Bench: ~979 Hz, occasional short runs of 2 ms reports, cursor only.
 
 2) rhythm1015-wip.bin  WIP - higher report rate and lower overall scatter,
-   but about 0.6% of host polls land at 2 ms as scattered drops.
+   but about 0.6% of reports land at 2 ms in a deterministic ~180 ms beat.
    Bench: ~994 Hz, 0.56-0.57% 2 ms gaps, no long runs, cursor only.
    X scatter is lower than the stable image; Y is slightly higher.
    This one is still being evaluated. Try it if you want the higher rate;

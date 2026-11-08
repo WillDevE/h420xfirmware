@@ -54,7 +54,9 @@ Expected: `96 passed, 0 failed`, 32,000-byte payload, SHA-256
 ## Status
 
 **WIP.** Bench result on hardware: 994.3-994.4 Hz across a 9-point steady test
-plus a CCW trial, 0.56-0.57 % of host polls at 2 ms (scattered, no long runs),
-zero gaps over 5 ms. Compared with the stable image, X scatter is lower and Y
-scatter is slightly higher. The flasher labels this image WIP; the stable
-`rhythm1000.bin` remains the recommended default.
+plus a CCW trial, 0.56-0.57 % of reports at 2 ms in a deterministic ~180 ms
+beat (no long runs), zero gaps over 5 ms. The beat is consistent with the
+actual device frame being slightly slower than the 1 ms host poll; a
+frame-period diagnostic is measuring it. Compared with the stable image, X
+scatter is lower and Y scatter is slightly higher. The flasher labels this
+image WIP; the stable `rhythm1000.bin` remains the recommended default.
