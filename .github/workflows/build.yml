@@ -40,11 +40,17 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $bin
           & (Join-Path $bin 'arm-none-eabi-gcc.exe') --version
 
-      - name: Build rhythm1000
+      - name: Build rhythm1000 (stable)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           ./firmware/build.ps1 -Profile rhythm900 -Robust -EdgeExt -SamptModes -LoopMode 3 -LoopArm -Release -CadReset 256 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -Clean
+
+      - name: Build rhythm1015-wip (WIP)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./firmware-wip/build.ps1 -Clean -Profile rhythm900 -Robust -EdgeExt -Scan1kModes -AxisGapModes -LoopMode 1 -LoopArm -Release -CadReset 256 -FrameFloorUs 985 -ReadGap 50 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat
 
       - name: Verify image (96 checks)
         shell: pwsh
@@ -56,16 +62,32 @@ jobs:
           python firmware/tools/verify_image.py --elf $elf.FullName --bin $app.FullName
           if ($LASTEXITCODE -ne 0) { throw 'verify_image.py failed' }
 
-      - name: Stage image and check the tested hash
+      - name: Verify WIP image (96 checks)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $app = Get-ChildItem firmware/build/*_app.bin | Select-Object -First 1
-          $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
-          $want = '00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171'
-          if ($hash -ne $want) { throw "Built image SHA-256 $hash does not match the tested image $want" }
-          Copy-Item $app.FullName rhythm1000.bin
-          "$hash  rhythm1000.bin" | Out-File -Encoding ascii rhythm1000.bin.sha256
+          $elf = Get-ChildItem firmware-wip/build/*.elf | Select-Object -First 1
+          $app = Get-ChildItem firmware-wip/build/*_app.bin | Select-Object -First 1
+          if (-not $elf -or -not $app) { throw 'WIP build outputs not found' }
+          python firmware-wip/tools/verify_image.py --elf $elf.FullName --bin $app.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'WIP verify_image.py failed' }
+
+      - name: Stage images and check the tested hashes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $images = @(
+            @{ Name = 'rhythm1000.bin';     Dir = 'firmware';     Want = '00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171' },
+            @{ Name = 'rhythm1015-wip.bin'; Dir = 'firmware-wip'; Want = '12cdd4689595dc94d68546fe74d279be9c84b1028b8e45afcaaa9fd8bead11a3' }
+          )
+          foreach ($image in $images) {
+            $app = Get-ChildItem "$($image.Dir)/build/*_app.bin" | Select-Object -First 1
+            if (-not $app) { throw "Build output not found for $($image.Name)" }
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
+            if ($hash -ne $image.Want) { throw "Built $($image.Name) SHA-256 $hash does not match the tested image $($image.Want)" }
+            Copy-Item $app.FullName $image.Name
+            "$hash  $($image.Name)" | Out-File -Encoding ascii "$($image.Name).sha256"
+          }
 
       - name: Build flasher package
         shell: pwsh
@@ -75,15 +97,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path $stage, "$stage\firmware", "$stage\gigadevice" | Out-Null
           Copy-Item -Path flash.bat, flash.ps1, get-firmware.bat, get-firmware.ps1, LICENSE, NOTICE.md -Destination $stage
           Copy-Item -Path rhythm1000.bin -Destination (Join-Path $stage 'firmware\rhythm1000.bin')
+          Copy-Item -Path rhythm1015-wip.bin -Destination (Join-Path $stage 'firmware\rhythm1015-wip.bin')
           Copy-Item -Path .github/release/README.txt -Destination (Join-Path $stage 'README.txt')
           Copy-Item -Path .github/release/gigadevice-readme.txt -Destination (Join-Path $stage 'gigadevice\README.txt')
 
           $ref = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA }
           @(
-            'Source code for this build:',
+            'Source code for these builds:',
             "https://github.com/WillDevE/h420xfirmware/tree/$ref/firmware",
+            "https://github.com/WillDevE/h420xfirmware/tree/$ref/firmware-wip",
             '',
-            'That tree is the exact source used by the GitHub Actions workflow.',
+            'Those trees are the exact sources used by the GitHub Actions workflow',
+            '(firmware = stable rhythm1000.bin, firmware-wip = WIP rhythm1015-wip.bin).',
             'The release page also has auto-generated source code zip/tar.gz files.',
             '',
             'License: GPL-3.0-or-later (see LICENSE). TinyUSB: MIT (see NOTICE.md).'
@@ -91,6 +116,7 @@ jobs:
 
           $pairs = @(
             @('firmware\rhythm1000.bin', 'rhythm1000.bin'),
+            @('firmware\rhythm1015-wip.bin', 'rhythm1015-wip.bin'),
             @('flash.ps1', 'flash.ps1'),
             @('flash.bat', 'flash.bat'),
             @('get-firmware.ps1', 'get-firmware.ps1'),
@@ -123,10 +149,12 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rhythm1000
+          name: firmware-images
           path: |
             rhythm1000.bin
             rhythm1000.bin.sha256
+            rhythm1015-wip.bin
+            rhythm1015-wip.bin.sha256
             H420X-Flasher.zip
             H420X-Flasher-*.zip
             H420X-Flasher*.sha256
@@ -138,9 +166,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and the firmware. Advanced: rhythm1000.bin is the standalone image. Both are built from the source in this repository by GitHub Actions; see README.md for install and verification instructions."
+          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and two cursor-only images. The flasher labels image 1 (rhythm1000.bin) as the stable, recommended release and image 2 (rhythm1015-wip.bin) as WIP: higher report rate and lower overall scatter, but about 0.6% of host polls land at 2 ms (scattered drops, no long bursts). Advanced: both standalone images and their SHA-256 files are attached. Both images are built from the source in this repository by GitHub Actions; see README.md for the comparison, install and verification instructions."
           gh release create $tag H420X-Flasher.zip --verify-tag --title "H420X clean-room firmware $tag" --notes $notes 2>$null
-          gh release upload $tag H420X-Flasher.zip "H420X-Flasher-$tag.zip" H420X-Flasher.zip.sha256 "H420X-Flasher-$tag.zip.sha256" rhythm1000.bin rhythm1000.bin.sha256 --clobber
+          gh release upload $tag H420X-Flasher.zip "H420X-Flasher-$tag.zip" H420X-Flasher.zip.sha256 "H420X-Flasher-$tag.zip.sha256" rhythm1000.bin rhythm1000.bin.sha256 rhythm1015-wip.bin rhythm1015-wip.bin.sha256 --clobber
           if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
           gh release edit $tag --notes $notes
           if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }

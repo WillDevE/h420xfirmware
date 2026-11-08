@@ -1,8 +1,10 @@
-# Firmware source and build
+# Firmware source and build (stable)
 
-This directory is the complete source for the release image. No firmware
-binary is stored in the repository: the image is built by
-`.github/workflows/build.yml` and attached to the GitHub release.
+This directory is the complete source for the stable `rhythm1000.bin` image.
+The optional WIP image (`rhythm1015-wip.bin`) is built from `firmware-wip/`;
+see `firmware-wip/README.md`. No firmware binary is stored in the repository:
+both images are built by `.github/workflows/build.yml` and attached to the
+GitHub release.
 
 ## Layout
 
