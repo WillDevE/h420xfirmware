@@ -5,7 +5,7 @@
 # The release zip has its own SHA256SUMS.txt covering the packaged scripts and
 # README. Script hashes are not listed here because Git line-ending conversion
 # makes them checkout-dependent.
-08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1  rhythm1000.bin
+7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5  rhythm1000.bin
 
 c97d2a6a94747d2c7532bb98ed447008319c3d74e87d96cdf018b54602a5ad14  gigadevice/GD_DFU_DLL.dll
 9faeaa45e8cc986af56f28350b38238b03c01c355e9564b849604b8d690919c5  gigadevice/vcruntime140.dll

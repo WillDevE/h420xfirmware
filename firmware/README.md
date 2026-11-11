@@ -31,10 +31,10 @@ From the repository root:
 ```powershell
 powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
   -Clean -Profile rhythm900 -Robust -EdgeExt `
-  -Scan1kModes -AxisGapModes -LoopMode 3 -LoopArm -Release `
+  -Scan1kModes -AxisGapModes -LoopMode 1 -LoopArm -Release `
   -CadReset 256 -ReadGap 50 `
   -StockIdentity -SerialNumber 20210233 `
-  -LateConnect -QuietHeartbeat -FastEp1 -R59Modes -NoR55Aux
+  -LateConnect -QuietHeartbeat -FastEp1 -R63Modes -NoR55Aux
 ```
 
 `-Clean` removes the object directory first; CI always uses it.
@@ -42,10 +42,10 @@ powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
 Outputs in `firmware/build/`:
 
 ```text
-h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux_app.bin
-h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.elf
-h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.map
-h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.lst
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux_app.bin
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux.elf
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux.map
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux.lst
 ```
 
 The `_app.bin` is the 32,000-byte DFU payload (0xFF padded).
@@ -54,12 +54,12 @@ The `_app.bin` is the 32,000-byte DFU payload (0xFF padded).
 
 ```powershell
 python firmware/tools/verify_image.py `
-  --elf firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.elf `
-  --bin firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux_app.bin
+  --elf firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux.elf `
+  --bin firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode1_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r63modes_noaux_app.bin
 ```
 
 Expected: `96 passed, 0 failed`, 32,000-byte payload, SHA-256
-`08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1`.
+`7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5`.
 
 The verifier does not use the firmware sources or linker map. It parses the ELF,
 reconstructs the loadable image, and checks the boot contract, USB descriptors,
@@ -73,7 +73,7 @@ HID report descriptors and DFU padding directly.
 2. runs the build above,
 3. runs the verifier,
 4. fails unless the finished image hash is
-   `08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1`,
+   `7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5`,
 5. assembles `H420X-Flasher.zip` (flasher + built image + README/hashes),
 6. uploads the zip as an artifact and, on a version tag, attaches it to the
    GitHub release.

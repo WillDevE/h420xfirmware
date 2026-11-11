@@ -37,6 +37,120 @@ void tracker_set_fit_mode(uint8_t mode) {
 #else
 #define HYST_NOW HYST_SHIFT
 #endif
+
+/* Odd cubic correction weights (Q16) of log_position(), X and Y. */
+#define CUBIC_K_Y 39675
+#ifndef R60_MODES
+#define R60_MODES 0
+#endif
+#if R60_MODES && !LOOP_MODES
+#error "R60_MODES needs LOOP_MODES"
+#endif
+#if R60_MODES
+/* Round 60: the Y weight per loop mode. Circles showed a Y error across each
+ * coil with exactly this term's shape: 39675 over-corrects the round 59 reads. */
+static int32_t cubic_k_y = CUBIC_K_Y;
+
+void tracker_set_cubic_k_y(uint16_t k) {
+  cubic_k_y = (int32_t)k;
+}
+#define CUBIC_K_Y_NOW cubic_k_y
+#else
+#define CUBIC_K_Y_NOW CUBIC_K_Y
+#endif
+
+#ifndef R61_MODES
+#define R61_MODES 0
+#endif
+#if R61_MODES && !R60_MODES
+#error "R61_MODES needs R60_MODES"
+#endif
+#if R61_MODES
+/* Round 61: a scale correction of the fitted offset o inside each coil, per
+ * axis (Q16, positive shrinks). Round 60 circles showed the X fit over-scaled
+ * by ~2 % in one sitting (dot spacing ~2 % wide inside every coil and a 20-28
+ * unit fall-back at every X handoff) and nearly right in another, so the loop
+ * modes test fixed values and an online learner that nulls the handoff jump.
+ * The learner only changes this scale; every position is still the same-frame
+ * fit of this frame's amplitudes (no smoothing, no blend, no delay). */
+#define R61_SCALE_LIMIT 3932      /* +-6 % */
+static int32_t r61_fixed[2];      /* fixed scale per axis (axes the learner does not drive) */
+static int32_t r61_sigma[2][2];   /* learned scale, [learner slot - 1][axis] */
+static uint8_t r61_slot;          /* 0 = no learner, 1..2 = learner slot */
+static uint8_t r61_shift;         /* learner gain 1/2^shift */
+static uint8_t r61_axes;          /* bit 0 X, bit 1 Y: axes the learner drives */
+static int32_t r61_v16[2];        /* per-axis velocity, units per frame x16 (exponential, 1/4) */
+static uint8_t r61_hist[2];       /* frames in r61_v16 since the last forget */
+static int32_t r61_scale_now;     /* the scale log_position() applies to this call */
+
+void tracker_set_r61(int16_t sx, int16_t sy, uint8_t slot, uint8_t shift, uint8_t axes) {
+  r61_fixed[0] = sx;
+  r61_fixed[1] = sy;
+  r61_slot = (slot <= 2U) ? slot : 0U;
+  r61_shift = (r61_slot != 0U) ? shift : 0U;
+  r61_axes = (r61_slot != 0U) ? axes : 0U;
+}
+
+int32_t tracker_r61_scale(uint8_t axis) {
+  if (r61_slot != 0U && (r61_axes & (1U << axis)) != 0U) {
+    return r61_sigma[r61_slot - 1U][axis];
+  }
+  return r61_fixed[axis];
+}
+
+/* Velocity and handoff-jump bookkeeping, once per fitted frame and axis, before
+ * the history update. At a one-coil handoff the jump is this frame's step minus
+ * the velocity, in the direction of the move; the learner moves the scale
+ * against it (a fall-back means over-scaled, so shrink more). */
+static void r61_track(const tracker_state *state, uint8_t axis, uint8_t center, int32_t pos) {
+  const int32_t p = (axis == 0U) ? 1267 : 1248;
+  if (state->history[axis] == 0U) {
+    r61_hist[axis] = 0U;
+    return;
+  }
+  const uint8_t last = state->last_center[axis];
+  const int32_t d16 = (pos - state->prev_pos[axis]) * 16;
+  if (center == last) {
+    if (r61_hist[axis] == 0U) {
+      r61_v16[axis] = d16;
+    } else {
+      r61_v16[axis] += (d16 - r61_v16[axis]) / 4;
+    }
+    if (r61_hist[axis] < 255U) {
+      r61_hist[axis]++;
+    }
+    return;
+  }
+  if (r61_shift == 0U || (r61_axes & (1U << axis)) == 0U || r61_hist[axis] < 4U) {
+    return;
+  }
+  if (center != (uint8_t)(last + 1U) && (uint8_t)(center + 1U) != last) {
+    return;
+  }
+  const int32_t dir = (center > last) ? 1 : -1;
+  const int32_t along16 = r61_v16[axis] * dir;
+  if (along16 < (p * 16) / 128 || along16 > (p * 16) / 8) {
+    return;
+  }
+  int32_t j16 = (d16 - r61_v16[axis]) * dir;
+  if (j16 >= (p * 16) / 8 || j16 <= -(p * 16) / 8) {
+    return;
+  }
+  if (j16 > p) {            /* +-p/16 units = +-p in x16 units */
+    j16 = p;
+  } else if (j16 < -p) {
+    j16 = -p;
+  }
+  int32_t *s = &r61_sigma[r61_slot - 1U][axis];
+  int32_t v = *s - ((j16 * 4096) / p) / (int32_t)(1U << r61_shift);
+  if (v > R61_SCALE_LIMIT) {
+    v = R61_SCALE_LIMIT;
+  } else if (v < -R61_SCALE_LIMIT) {
+    v = -R61_SCALE_LIMIT;
+  }
+  *s = v;
+}
+#endif
 #define CAL_LIMIT 8192         /* |slot-gain correction| */
 #define LOG_NUM_LIMIT (1 << 20)
 #define WEAK_PEAK 150U         /* peak coil amplitude at or below: weak window */
@@ -129,6 +243,10 @@ static int32_t log_position(uint8_t center, const uint16_t a[3],
   } else if (o < -p) {
     o = -p;
   }
+#if R61_MODES
+  /* Round 61: scale correction of o (Q16, positive shrinks). */
+  o -= (o * r61_scale_now) / 65536;
+#endif
 
   /* Fixed odd cubic correction for the measured profile. */
   int32_t q = (o * o - (p * p) / 4) / p;
@@ -165,10 +283,13 @@ static int32_t axis_index_position(uint8_t axis, uint8_t center,
     return ((int32_t)center - 2) * p + l;
   }
 #endif
+#if R61_MODES
+  r61_scale_now = tracker_r61_scale(axis);
+#endif
   if (axis == 0U) {
     return log_position(center, a, 1267U, 15185, e, curvature);
   }
-  return log_position(center, a, 1248U, 39675, e, curvature);
+  return log_position(center, a, 1248U, CUBIC_K_Y_NOW, e, curvature);
 }
 
 static void learn_axis(tracker_state *state, uint8_t axis, int32_t pos,
@@ -224,6 +345,10 @@ void tracker_init(tracker_state *state) {
 void tracker_forget(tracker_state *state) {
   state->history[0] = 0U;
   state->history[1] = 0U;
+#if R61_MODES
+  r61_hist[0] = 0U;
+  r61_hist[1] = 0U;
+#endif
 }
 
 void tracker_set_centers(tracker_state *state, uint8_t x_center,
@@ -256,6 +381,9 @@ static int32_t fit_axis(tracker_state *state, uint8_t axis,
     }
   }
 
+#if R61_MODES
+  r61_track(state, axis, center, pos);
+#endif
   state->prev_delta[axis] = state->history[axis]
       ? pos - state->prev_pos[axis] : 0;
   state->prev_pos[axis] = pos;

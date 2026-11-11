@@ -148,6 +148,33 @@
 #if R59_MODES && !R58_MODES
 #error "-R59Modes needs the round 58 machinery (R58_MODES)"
 #endif
+#ifndef R60_MODES
+#define R60_MODES 0      /* build.ps1 -R60Modes (implies -R59Modes): Y cubic correction weight ladder (round 60) */
+#endif
+#if R60_MODES && !R59_MODES
+#error "-R60Modes needs the round 59 machinery (R59_MODES)"
+#endif
+#ifndef R61_MODES
+#define R61_MODES 0      /* build.ps1 -R61Modes (implies -R60Modes): fitted-offset scale ladder + handoff learner (round 61) */
+#endif
+#if R61_MODES && !R60_MODES
+#error "-R61Modes needs the round 60 machinery (R60_MODES)"
+#endif
+#ifndef R62_MODES
+#define R62_MODES 0      /* build.ps1 -R62Modes (implies -R61Modes): release candidate 6 table (round 62) */
+#endif
+#if R62_MODES && !R61_MODES
+#error "-R62Modes needs the round 61 machinery (R61_MODES)"
+#endif
+#ifndef R63_MODES
+#define R63_MODES 0      /* build.ps1 -R63Modes (implies -R60Modes): deterministic handoff table (round 63) */
+#endif
+#if R63_MODES && !R60_MODES
+#error "-R63Modes needs the round 60 machinery (R60_MODES)"
+#endif
+#if R63_MODES && R61_MODES
+#error "-R63Modes is learner-free: do not combine it with -R61Modes / -R62Modes"
+#endif
 #ifndef R55_AUX
 #define R55_AUX 1        /* build.ps1 -NoR55Aux sets 0: no R55 aux, the report falls through to the release aux zero */
 #endif
@@ -640,6 +667,16 @@ typedef struct {
 #if R56_MODES
   uint16_t r56_lead;    /* round 56: first read this many cycles after ASAP (keeps the used reads in the control's slots), 0 = ASAP */
 #endif
+#if R60_MODES
+  uint16_t cubic_ky;    /* round 60: Y odd cubic correction weight of the log fit (Q16; the default is 39675) */
+#endif
+#if R61_MODES
+  int16_t r61_sx;       /* round 61: fixed X scale correction of the fitted offset (Q16, positive shrinks) */
+  int16_t r61_sy;       /* round 61: fixed Y scale correction (Q16) */
+  uint8_t r61_slot;     /* round 61: 0 = fixed scales, 1..2 = handoff learner slot */
+  uint8_t r61_shift;    /* round 61: learner gain 1/2^shift */
+  uint8_t r61_axes;     /* round 61: learner axes, bit 0 X, bit 1 Y */
+#endif
 } loop_mode_def;
 
 /* Candidate-only overrides for the fixed mode-1 row. Defaults reproduce the
@@ -658,7 +695,94 @@ typedef struct {
 #define MODE1_LOCK LOOP_LOCK_FREE
 #endif
 
-#if R59_MODES
+#if R63_MODES
+/* Round 63: the deterministic handoff. Release candidate 7 is mode 1
+ * (-LoopMode 1 -LoopArm -R63Modes -NoR55Aux). The 3-coil log fit returns
+ * exactly +-p/2, and the cubic term is exactly zero, whenever two neighbouring
+ * coils read the same amplitude, for any pen height, tilt, coil gain or floor;
+ * so moving the ownership exactly where they are equal makes the position
+ * continuous by construction. The 1/32 hysteresis moved it 6-12 % of a coil
+ * late, where the old fit has drifted (a stacked or gapped dot at every coil
+ * boundary, round 62). Every mode is the v2.0.0 reads (round 59 mode 3) with
+ * the Y weight 12000 (round 60); no scale correction and no learner (the
+ * round 61 code is not built), and the HOOK row's round 24 slot-gain learner
+ * is off, so nothing adapts. Rows 2-7 are variants for a possible rotation.
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead ky */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U, 12000U },   /* 0 HOOK, learner off */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  8U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U },   /* 1 RC7 hyst 1/256   */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U },   /* 2 ctrl hyst 1/32   */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  7U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U },   /* 3 hyst 1/128       */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  6U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U },   /* 4 hyst 1/64        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  8U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 14500U },   /* 5 1/256 ky 14500   */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  8U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 10000U },   /* 6 1/256 ky 10000   */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U },   /* 7 ctrl hyst 1/32   */
+};
+#elif R62_MODES
+/* Round 62: release candidate 6 is mode 1 (-LoopMode 1 -LoopArm -R62Modes
+ * -NoR55Aux): the v2.0.0 reads (round 59 mode 3), the Y cubic weight 12000
+ * (round 60) and the round 61 handoff learner on X only, gain 1/8. Round 61
+ * showed the X scale the fit needs changes with the pen pose from circle to
+ * circle (0.5-3.3 % shrink), which the learner follows; the Y learner hurt.
+ * The other rows are variants for a possible rotation (not built for test).
+ * Aux as round 61. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead ky     sx     sy  slot shift axes */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U, 12000U,     0,     0, 0U, 0U, 0U },   /* 0 HOOK          */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 1U, 3U, 1U },   /* 1 RC6 learn X 1/8 */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 0U, 0U, 0U },   /* 2 ctrl (scale 1)  */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 1U, 4U, 1U },   /* 3 learn X 1/16    */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 1U, 2U, 1U },   /* 4 learn X 1/4     */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,   983,     0, 0U, 0U, 0U },   /* 5 X x0.985        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 1U, 3U, 3U },   /* 6 learn X+Y 1/8   */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 0U, 0U, 0U },   /* 7 ctrl (scale 1)  */
+};
+#elif R61_MODES
+/* Round 61: the handoff seam. Every mode is round 59 mode 3 (the v2.0.0
+ * reads) with the Y cubic weight 12000 (round 60: the Y error across each
+ * coil cancels at ~10,000-12,400) and a scale correction of the fitted offset
+ * o (Q16, positive shrinks). Round 60 circles showed the X fit over-scaled by
+ * ~2 % in one sitting and snapping back 20-28 units at every X handoff.
+ *   1 control (scale 1)  2 X x0.99  3 X x0.98  4 X x0.97  5 X x1.01
+ *   6 learner X+Y, gain 1/16   7 learner X+Y, gain 1/4
+ * The learner nulls the jump at one-coil handoffs (velocity 1/128 .. 1/8 pitch
+ * per frame); each learner mode keeps its own state across the rotation.
+ * Aux as round 55 (13-15 mode), except learner modes: bits 0-5 / 6-9 = the X / Y
+ * scale in use (signed, 0.25 % per step). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead ky     sx     sy  slot shift axes */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U, 12000U,     0,     0, 0U, 0U, 0U },   /* 0 HOOK          */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 0U, 0U, 0U },   /* 1 ctrl (scale 1) */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,   655,     0, 0U, 0U, 0U },   /* 2 X x0.99       */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,  1311,     0, 0U, 0U, 0U },   /* 3 X x0.98       */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,  1966,     0, 0U, 0U, 0U },   /* 4 X x0.97       */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,  -655,     0, 0U, 0U, 0U },   /* 5 X x1.01       */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 1U, 4U, 3U },   /* 6 learn 1/16    */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 12000U,     0,     0, 2U, 2U, 3U },   /* 7 learn 1/4     */
+};
+#elif R60_MODES
+/* Round 60: the Y cubic correction ladder. Every mode is round 59 mode 3
+ * (the v2.0.0 release: DW R139, 28 pulses, adc1 4056, IN lock, cycle-exact
+ * landings, learner off) with only the Y weight of the log fit's odd cubic
+ * correction changed. Circles of v2.0.0 showed a Y error across each coil
+ * (42-52 units p-p, pulled toward the coil centre) with 98-99 % of it in this
+ * term's shape; the weight that cancels it was ~11,600-17,300.
+ *   1 39675 (control = v2.0.0)  2 30000  3 24000  4 18000
+ *   5 14500                     6 11000  7 6000
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead ky */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U, 39675U },   /* 0 HOOK         */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 39675U },   /* 1 ky 39675 (ctrl) */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 30000U },   /* 2 ky 30000        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 24000U },   /* 3 ky 24000        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 18000U },   /* 4 ky 18000        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 14500U },   /* 5 ky 14500        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U, 11000U },   /* 6 ky 11000        */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U,  6000U },   /* 7 ky 6000         */
+};
+#elif R59_MODES
 /* Round 59: the pulse ladder. Every mode is round 58 mode 3 (DW R139: IN lock,
  * cycle-exact landings, the Y prep read started on the DWELL path with
  * r56_lead 250, the relative 139-cycle first-read grid; S41.5, one conversion,
@@ -1098,6 +1222,12 @@ static void loop_apply(uint8_t mode) {
   tracker_set_hyst_shift(d->hyst);
   tracker_set_slot_learn(d->learn);
   tracker_set_fit_mode(d->fit);
+#if R60_MODES
+  tracker_set_cubic_k_y(d->cubic_ky);
+#endif
+#if R61_MODES
+  tracker_set_r61(d->r61_sx, d->r61_sy, d->r61_slot, d->r61_shift, d->r61_axes);
+#endif
 #if SAMPT_MODES
   sensing_set_sample_time(d->sampt);
 #endif
@@ -2427,6 +2557,26 @@ int main(void) {
       if (spread > 15U) {
         spread = 15U;
       }
+#if R61_MODES
+      if (loop_defs[loop_mode].r61_slot != 0U) {
+        /* Round 61 learner modes: bits 0-5 = the X scale in use, bits 6-9 = the Y
+         * scale, signed two's complement, 164/65536 (0.25 %) per step, saturating. */
+        int32_t sx = tracker_r61_scale(0U) / 164;
+        int32_t sy = tracker_r61_scale(1U) / 164;
+        if (sx > 31) {
+          sx = 31;
+        } else if (sx < -32) {
+          sx = -32;
+        }
+        if (sy > 7) {
+          sy = 7;
+        } else if (sy < -8) {
+          sy = -8;
+        }
+        low = (uint32_t)sx & 0x3FU;
+        spread = (uint32_t)sy & 0x0FU;
+      }
+#endif
       const uint32_t aux = low | (spread << 6) |
                            ((passes > 1U) ? 0x0400U : 0U) |
                            (loop_in_flag ? 0x0800U : 0U) |

@@ -10,10 +10,11 @@ This folder contains:
 
 What you get
 ------------
-rhythm1000.bin is the final 1000 Hz cursor-only build. It is raw, same-frame
-and unfiltered. It has no pressure, tip or pen buttons.
-Bench: 999.9 Hz, no dropped reports and no report gaps over 1.5 ms in about
-214,000 reports.
+rhythm1000.bin (v2.0.1) is the final 1000 Hz cursor-only build. It is raw,
+same-frame, unfiltered and deterministic. It has no pressure, tip or pen
+buttons.
+Bench: 999.9 Hz, no dropped reports and no report gaps over 1.5 ms (about
+50,000 reports on v2.0.1, 214,000 on v2.0.0, which uses the same reads).
 
 Quick start
 -----------

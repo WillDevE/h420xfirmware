@@ -82,6 +82,10 @@ param(
     [switch]$R57Modes,
     [switch]$R58Modes,
     [switch]$R59Modes,
+    [switch]$R60Modes,
+    [switch]$R61Modes,
+    [switch]$R62Modes,
+    [switch]$R63Modes,
     [switch]$NoR55Aux,
     [int]$DigitizerInterval = 0,
     [ValidateSet('m0', 'rhythm750', 'rhythm900', 'pen500')]
@@ -93,6 +97,10 @@ param(
 if ($GapModes -or $ConvModes -or $JitterModes -or $AxisGapModes) { $Scan1kModes = $true }
 # Round 56 is built on the round 55 machinery (grid, exact landings, R55 aux): imply it, so the
 # -R55Modes validation below applies; the file name carries only _r56modes.
+if ($R63Modes) { $R60Modes = $true }   # round 63: deterministic handoff, R60 table format, no R61 scale / learner code
+if ($R62Modes) { $R61Modes = $true }   # round 62 reuses the round 61 scale / learner machinery
+if ($R61Modes) { $R60Modes = $true }   # round 61 builds on round 60 (per-mode Y cubic weight) and everything below
+if ($R60Modes) { $R59Modes = $true }   # round 60 builds on round 59 (28-pulse R139 reads) and everything below
 if ($R59Modes) { $R58Modes = $true }   # round 59 builds on round 58 (relative grids) and everything below
 if ($R58Modes) { $R57Modes = $true }   # round 58 builds on round 57 (grid sizes) and everything below
 if ($R57Modes) { $R56Modes = $true }   # round 57 builds on round 56 (lead) and round 55 (grid, exact)
@@ -170,7 +178,7 @@ if ($SofLeadUs -ge 0) { $ProfileTag += '_sl' + $SofLeadUs }
 if ($InLock) { $ProfileTag += '_in' }
 if ($InEpsUs -ge 0) { $ProfileTag += '_ie' + $InEpsUs }
 if ($DigitizerInterval -gt 0) { $ProfileTag += '_dig' + $DigitizerInterval }
-if ($R59Modes) { $ProfileTag += '_r59modes' } elseif ($R58Modes) { $ProfileTag += '_r58modes' } elseif ($R57Modes) { $ProfileTag += '_r57modes' } elseif ($R56Modes) { $ProfileTag += '_r56modes' } elseif ($R55Modes) { $ProfileTag += '_r55modes' }
+if ($R63Modes) { $ProfileTag += '_r63modes' } elseif ($R62Modes) { $ProfileTag += '_r62modes' } elseif ($R61Modes) { $ProfileTag += '_r61modes' } elseif ($R60Modes) { $ProfileTag += '_r60modes' } elseif ($R59Modes) { $ProfileTag += '_r59modes' } elseif ($R58Modes) { $ProfileTag += '_r58modes' } elseif ($R57Modes) { $ProfileTag += '_r57modes' } elseif ($R56Modes) { $ProfileTag += '_r56modes' } elseif ($R55Modes) { $ProfileTag += '_r55modes' }
 if ($NoR55Aux) { $ProfileTag += '_noaux' }
 $ObjDir       = Join-Path $BuildDir ("obj\" + $ProfileTag)
 $LdScript     = Join-Path $FirmwareRoot 'ld\h420x_app.ld'
@@ -232,7 +240,7 @@ if ($SofLeadUs -ge 0) { $Prefix = $Prefix + '_sl' + $SofLeadUs }
 if ($InLock) { $Prefix = $Prefix + '_in' }
 if ($InEpsUs -ge 0) { $Prefix = $Prefix + '_ie' + $InEpsUs }
 if ($DigitizerInterval -gt 0) { $Prefix = $Prefix + '_dig' + $DigitizerInterval }
-if ($R59Modes) { $Prefix = $Prefix + '_r59modes' } elseif ($R58Modes) { $Prefix = $Prefix + '_r58modes' } elseif ($R57Modes) { $Prefix = $Prefix + '_r57modes' } elseif ($R56Modes) { $Prefix = $Prefix + '_r56modes' } elseif ($R55Modes) { $Prefix = $Prefix + '_r55modes' }
+if ($R63Modes) { $Prefix = $Prefix + '_r63modes' } elseif ($R62Modes) { $Prefix = $Prefix + '_r62modes' } elseif ($R61Modes) { $Prefix = $Prefix + '_r61modes' } elseif ($R60Modes) { $Prefix = $Prefix + '_r60modes' } elseif ($R59Modes) { $Prefix = $Prefix + '_r59modes' } elseif ($R58Modes) { $Prefix = $Prefix + '_r58modes' } elseif ($R57Modes) { $Prefix = $Prefix + '_r57modes' } elseif ($R56Modes) { $Prefix = $Prefix + '_r56modes' } elseif ($R55Modes) { $Prefix = $Prefix + '_r55modes' }
 if ($NoR55Aux) { $Prefix = $Prefix + '_noaux' }
 
 $AppBinSize   = 32000          # 0x7D00, the stock DFU application window
@@ -361,6 +369,10 @@ if ($R56Modes) { $CommonFlags += '-DR56_MODES=1' }
 if ($R57Modes) { $CommonFlags += '-DR57_MODES=1' }
 if ($R58Modes) { $CommonFlags += '-DR58_MODES=1' }
 if ($R59Modes) { $CommonFlags += '-DR59_MODES=1' }
+if ($R60Modes) { $CommonFlags += '-DR60_MODES=1' }
+if ($R61Modes) { $CommonFlags += '-DR61_MODES=1' }
+if ($R62Modes) { $CommonFlags += '-DR62_MODES=1' }
+if ($R63Modes) { $CommonFlags += '-DR63_MODES=1' }
 if ($NoR55Aux) { $CommonFlags += '-DR55_AUX=0' }
 
 $IncludeFlags = @(

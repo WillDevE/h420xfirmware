@@ -44,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          ./firmware/build.ps1 -Clean -Profile rhythm900 -Robust -EdgeExt -Scan1kModes -AxisGapModes -LoopMode 3 -LoopArm -Release -CadReset 256 -ReadGap 50 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -FastEp1 -R59Modes -NoR55Aux
+          ./firmware/build.ps1 -Clean -Profile rhythm900 -Robust -EdgeExt -Scan1kModes -AxisGapModes -LoopMode 1 -LoopArm -Release -CadReset 256 -ReadGap 50 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -FastEp1 -R63Modes -NoR55Aux
 
       - name: Verify image (96 checks)
         shell: pwsh
@@ -60,7 +60,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $want = '08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1'
+          $want = '7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5'
           $app = Get-ChildItem firmware/build/*_app.bin | Select-Object -First 1
           if (-not $app) { throw 'Build output not found' }
           $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
@@ -135,8 +135,11 @@ jobs:
             '',
             '**Download `H420X-Flasher.zip`.** It has the flasher and the firmware image inside; see the README for the steps.',
             '',
-            '- 999.9 Hz on the test bench, with no dropped reports and no report gaps over 1.5 ms in about 214,000 reports.',
-            '- Steady jitter over 9 tablet positions: X 1.82 / Y 2.28 units RMS (1 unit is about 0.005 mm).',
+            'v2.0.1 removes the bands that circles showed at every Y coil boundary and hands over to the next coil where the two coils read equal. Nothing in the image adapts: the same coil readings always give the same position.',
+            '',
+            '- 999.9 Hz on the test bench, with no dropped reports and no report gaps over 1.5 ms (v2.0.1: about 50,000 reports in circles; v2.0.0, same reads: about 214,000).',
+            '- Steady jitter over 9 tablet positions: X 1.82 / Y 2.28 units RMS (1 unit is about 0.005 mm), measured on v2.0.0, which uses the same reads.',
+            '- Known limit: a small step (about 0.2 mm) remains at each X coil boundary; see Limits and TODO in the README.',
             '- Raw same-frame position: no filtering, smoothing or added delay. No pressure, tip or pen buttons.',
             '',
             "``rhythm1000.bin`` SHA-256: ``$imageHash``",
@@ -160,6 +163,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $legacy = @(
+            @{ Tag = 'v2.0.0'; Keep = 'H420X-Flasher.zip' },
             @{ Tag = 'v1.0.3'; Keep = 'H420X-Flasher-v1.0.3.zip' },
             @{ Tag = 'v1.0.2'; Keep = 'H420X-Flasher-v1.0.2.zip' },
             @{ Tag = 'v1.0.1'; Keep = 'H420X-Flasher-v1.0.1.zip' },

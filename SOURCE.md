@@ -12,7 +12,7 @@ workflow packages it in `H420X-Flasher.zip` together with the flasher and the
 quick-start README.
 
 ```text
-SHA-256 08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1  rhythm1000.bin
+SHA-256 7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5  rhythm1000.bin
 ```
 
 The workflow pins Arm GNU Toolchain 12.2.MPACBTI-Rel1, runs the 96-check
@@ -24,6 +24,8 @@ The same build can be reproduced locally with the commands in
 
 - Clean-room three-coil log-domain fit, same-frame only, no output filter or
   temporal averaging.
+- Fixed estimator constants only (v2.0.1): Y odd cubic weight 12000, coil
+  ownership hysteresis 1/256, no run-time learner or calibration of any kind.
 - Frames locked to the USB IN transfer, about 1000 Hz, with cycle-exact read
   timing.
 - Seven reads per frame (a Y prep read, three Y, three X), 28 excitation pulses,
@@ -40,8 +42,9 @@ compiled out.
 
 ## Legacy images
 
-The older `00d11f9e` (v1.0.x stable) and `12cdd468` (WIP) images were built from
-the source at their release tags (`firmware/` and `firmware-wip/`).
+The older `00d11f9e` (v1.0.x stable), `12cdd468` (WIP) and `08bbedc4` (v2.0.0)
+images were built from the source at their release tags (`firmware/` and
+`firmware-wip/`).
 
 ## License
 

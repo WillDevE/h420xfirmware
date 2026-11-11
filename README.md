@@ -29,7 +29,7 @@ The zip contains `flash.bat`, `flash.ps1`, `firmware\rhythm1000.bin`, the
 GigaDevice instructions, and a `SHA256SUMS.txt`. The image hash is:
 
 ```
-08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1  rhythm1000.bin
+7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5  rhythm1000.bin
 ```
 
 The flasher checks it again before writing.
@@ -39,14 +39,28 @@ The flasher checks it again before writing.
 | | `rhythm1000.bin` |
 |---|---|
 | Bench report rate | 999.9 Hz |
-| Dropped reports | none in about 214,000 reports |
-| Report gaps over 1.5 ms | none in about 214,000 reports |
-| Steady jitter, 9-point RMS | X 1.82 / Y 2.28 units (1 unit is about 0.005 mm) |
+| Dropped reports | none (about 50,000 reports on v2.0.1, 214,000 on v2.0.0) |
+| Report gaps over 1.5 ms | none (about 50,000 reports on v2.0.1, 214,000 on v2.0.0) |
+| Steady jitter, 9-point RMS | X 1.82 / Y 2.28 units (1 unit is about 0.005 mm), measured on v2.0.0 (same reads) |
 | Pressure / tip / buttons | none |
 
 The image is raw and same-frame, with no smoothing or added delay. Jitter
 numbers are from the 9-point bench sessions and vary a little with pen position
 and session.
+
+### New in v2.0.1
+
+- **No more Y coil bands.** Circles drawn on v2.0.0 showed lines at every Y
+  coil boundary (about every 6.2 mm). The fit's Y correction constant was too
+  strong; it is now 12000 instead of 39675, and the Y error across a coil went
+  from 42-52 units peak to peak to under 10.
+- **Coil handoff at the crossover.** The tablet now hands over to the next coil
+  right where the two coils read equal (hysteresis 1/256 instead of 1/32),
+  instead of about a tenth of a coil later.
+- **Fully deterministic.** Nothing in the image adapts while you use it: the
+  same coil readings always give the same position. An old start-up correction
+  that could act in the first frames after the pen is detected is now off.
+- Same reads, timing and 1000 Hz as v2.0.0.
 
 ### 2. Add GigaDevice's USB library (one time)
 
@@ -122,10 +136,10 @@ Here's the exact build:
 ```powershell
 powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
   -Clean -Profile rhythm900 -Robust -EdgeExt `
-  -Scan1kModes -AxisGapModes -LoopMode 3 -LoopArm -Release `
+  -Scan1kModes -AxisGapModes -LoopMode 1 -LoopArm -Release `
   -CadReset 256 -ReadGap 50 `
   -StockIdentity -SerialNumber 20210233 `
-  -LateConnect -QuietHeartbeat -FastEp1 -R59Modes -NoR55Aux
+  -LateConnect -QuietHeartbeat -FastEp1 -R63Modes -NoR55Aux
 ```
 
 The compiler is pinned to **Arm GNU Toolchain 12.2.MPACBTI-Rel1**. Different
@@ -143,7 +157,7 @@ There's no firmware binary in the repo. The workflow in
 3. runs the 96-check verifier (ELF, USB descriptors, HID report descriptor,
    vector table and DFU padding),
 4. asserts the image's SHA-256 is exactly
-   `08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1`,
+   `7543ef7d1eb68658e2959ca1c966f1ad8d11402f9e4d5985d55c9740bebd51a5`,
    the one tested on hardware,
 5. assembles the user-facing `H420X-Flasher.zip` (flasher + image +
    README/hashes),
@@ -167,9 +181,9 @@ again before writing.
 
 ## How it was tested (the boring part)
 
-It took **59 firmware rounds** and about **180 candidate build folders** over
+It took **63 firmware rounds** and about **185 candidate build folders** over
 about **six weeks** (not really it was on and off). Along the way the bench
-recorded **174 sessions**, **634 trials**, and **12.9 million pen reports**. The
+recorded **179 sessions**, **672 trials**, and **13.8 million pen reports**. The
 clean-room app is about 7,000 lines of C.
 
 I had a personal test bench thing help me with trying to get it stable and collecting data then fed it back into the token burning AI loop and repeated
@@ -182,6 +196,11 @@ excitation pulse count that landed on 28.
 The final check ran the image on a 9-point steady test and circles: 999.9 Hz, no
 dropped reports and no report gaps over 1.5 ms in about 214,000 reports.
 
+v2.0.1 came out of rounds 60-63, which looked at circles dot by dot. The Y
+bands were the Y correction constant (fixed). The handoff now happens where the
+two coils read equal. The v2.0.1 image ran two circles: 999.9 Hz, no dropped
+reports and no report gaps over 1.5 ms in about 50,000 reports.
+
 ## Legacy images
 
 These are older builds. They're kept for reference and aren't recommended. Each
@@ -192,6 +211,10 @@ marked Legacy, and its source is in that release's tag.
 |---|---|---|---|
 | `rhythm1000.bin` (v1.0.x stable) | `00d11f9e…` | ~979 Hz | ~2.1 %, in short runs |
 | `rhythm1015-wip.bin` (v1.0.2/v1.0.3 WIP) | `12cdd468…` | ~994 Hz | ~0.56 %, scattered |
+| `rhythm1000.bin` (v2.0.0) | `08bbedc4…` | 999.9 Hz | none |
+
+v2.0.0 has the same reads and rate as v2.0.1 but draws bands at every Y coil
+boundary in circles.
 
 ## Limits and TODO
 
@@ -202,8 +225,10 @@ What's not done yet:
 - **Jitter isn't even across the tablet.** The bottom row has about twice the Y
   jitter of the top row, and the left column has a bit more X jitter than the
   right. The cause isn't known yet.
-- **Coil boundaries.** While the pen moves fast, Y has a small extra wobble as it
-  crosses a coil boundary, on the order of 0.02 mm.
+- **X coil boundaries.** In circles, X still has a small step at each X coil
+  boundary: one report lands short, by about 0.2 mm, and how much changes with
+  how the pen is held. The X reads follow the Y reads without a prep read of
+  their own; fixing it needs a read-order change that doesn't fit in 1 ms yet.
 - **Bootloader.** Only the stock H420X/T223 bootloader is supported. The flasher
   refuses anything else.
 - **Not a Huion product.** Huion and H420X are trademarks of their respective

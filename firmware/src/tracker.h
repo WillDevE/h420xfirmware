@@ -64,6 +64,20 @@ void tracker_set_slot_learn(uint8_t enable);
 /* Round 25 loop modes only: 0 = log-domain fit, 1 = stock-style three-point
  * linear interpolation. */
 void tracker_set_fit_mode(uint8_t mode);
+
+#if defined(R60_MODES) && R60_MODES
+/* Round 60 loop modes only: Y odd cubic correction weight of the log fit (Q16). */
+void tracker_set_cubic_k_y(uint16_t k);
+#endif
+
+#if defined(R61_MODES) && R61_MODES
+/* Round 61 loop modes only: scale correction of the fitted offset per axis
+ * (Q16, positive shrinks), fixed (sx, sy) or learned at the coil handoffs
+ * (slot 1..2, gain 1/2^shift, axes bit 0 X / bit 1 Y). tracker_r61_scale()
+ * returns the scale in use for an axis. */
+void tracker_set_r61(int16_t sx, int16_t sy, uint8_t slot, uint8_t shift, uint8_t axes);
+int32_t tracker_r61_scale(uint8_t axis);
+#endif
 #endif
 
 #endif /* H420X_TRACKER_H */
