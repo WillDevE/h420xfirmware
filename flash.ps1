@@ -13,10 +13,9 @@
 #      and compares every byte.
 # It never writes the bootloader (0x08000000) or the settings page (0x0800FC00).
 #
-# The firmware images are not shipped in this repository. get-firmware.bat
-# downloads the images built by GitHub Actions into firmware\ and checks their
-# SHA-256s first; this script checks the chosen one again against SHA256SUMS.txt
-# before writing anything.
+# The firmware image is not stored in this repository. H420X-Flasher.zip on the
+# GitHub release has the image built by GitHub Actions in firmware\; this script
+# checks it against SHA256SUMS.txt before writing anything.
 #
 # USB access goes through GigaDevice's own GD_DFU_DLL.dll from their free
 # "GD32 All-In-One Programmer". It is NOT included: download it once into
@@ -51,10 +50,9 @@ function Fail([string]$Message) { Write-Host ""; Write-Host "STOPPED: $Message" 
 if ([IntPtr]::Size -ne 4) { Fail 'Start this through flash.bat (it needs 32-bit PowerShell for the GigaDevice DLL).' }
 
 # ---------- 1. choose and check the firmware file ----------
-$Order = @('rhythm1000.bin', 'rhythm1015-wip.bin')
+$Order = @('rhythm1000.bin')
 $Descriptions = @{
-    'rhythm1000.bin'     = 'STABLE 1 kHz target, cursor only - raw unfiltered (recommended)'
-    'rhythm1015-wip.bin' = 'WIP ~994 Hz, lower scatter, scattered 2 ms drops - cursor only'
+    'rhythm1000.bin' = 'Final 1000 Hz, cursor only - raw unfiltered'
 }
 $listed = @{}   # file name -> SHA-256, from SHA256SUMS.txt
 foreach ($line in Get-Content (Join-Path $Here 'SHA256SUMS.txt')) {
@@ -64,7 +62,7 @@ if ($Firmware -eq "" -and -not $BackupOnly) {
     $choices = @(Get-ChildItem (Join-Path $Here 'firmware') -Filter *.bin |
                  Sort-Object @{ Expression = { $i = [Array]::IndexOf($Order, $_.Name); if ($i -lt 0) { 99 } else { $i } } }, Name)
     $backups = @(Get-ChildItem (Join-Path $Here 'backups') -Filter *.bin -ErrorAction SilentlyContinue | Sort-Object Name)
-    if ($choices.Count -eq 0) { Fail 'No firmware image in the firmware folder. Run get-firmware.bat first (it downloads the CI-built release images and checks their SHA-256s).' }
+    if ($choices.Count -eq 0) { Fail 'No firmware image in the firmware folder. Download H420X-Flasher.zip from the latest release; it has the image inside.' }
     Write-Host ""
     Write-Host "  H420X firmware installer" -ForegroundColor Cyan
     Write-Host ""

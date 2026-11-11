@@ -128,12 +128,27 @@ void sensing_frame_end(void) {
 #ifndef FRAME_AUX
 #define FRAME_AUX 0
 #endif
+#ifndef PHASE_MODES
+#define PHASE_MODES 0
+#endif
+#ifndef ORDER_MODES
+#define ORDER_MODES 0
+#endif
+#ifndef SETTLE_MODES
+#define SETTLE_MODES 0
+#endif
+#ifndef AXIS_GAP_MODES
+#define AXIS_GAP_MODES 0
+#endif
 #if LOOP_MODES
 /* -Modes / -LoopMode (round 8 diagnostic, rhythm900): loop parameters set by
  * main.c at run time, and how late each read started. A read is late when the
  * code before its burst (service hook, prologue) ran past the requested burst
  * start, i.e. the gap before it was longer than requested. */
 static uint32_t loop_extra_gap;              /* cycles added to READ_GAP_CYC for normal reads */
+#if AXIS_GAP_MODES
+static uint32_t loop_extra_gap_y;            /* round 50: extra Y read gap on top of loop_extra_gap */
+#endif
 static uint8_t loop_extra_prep;              /* extra discarded reads at the start of each window */
 static uint32_t loop_last_late;              /* lateness of the latest read, cycles */
 static uint32_t loop_last_pa2_high;          /* DWT at the end (PA2 rise) of the latest read */
@@ -157,6 +172,17 @@ static uint32_t loop_frame_period_cyc;       /* measured first-read -> first-rea
 #endif
 static uint32_t loop_last_integ;             /* PA2 low -> PA2 high of the latest read, cycles */
 static uint32_t loop_in_mask;                /* bit k: EP1 IN transfer complete at the start of read k of this frame; bit 15: at frame end */
+#if FRAME_AUX && defined(MODE1_IN)
+/* Round 54 IN-lock frameaux: loop_in_mask records where the SOF fell instead
+ * (bit k: the USB frame number had changed since sensing_frame_begin() at the
+ * start of read k; bit 15: by frame end). The IN lock starts every frame on
+ * the IN completion, so the XFRC version would always read "never". */
+static uint32_t loop_fn0;                    /* USB frame number at sensing_frame_begin() */
+static inline uint32_t sof_changed(void) {   /* 1 = frame number differs from loop_fn0; branch-free */
+  const uint32_t d = USBFS_DSTS_FNSOF(USBFS_DSTS) ^ loop_fn0;
+  return (d | (0U - d)) >> 31;
+}
+#endif
 static uint32_t loop_read_count;             /* reads started since sensing_frame_begin() */
 static uint8_t loop_cad_phase;               /* read-period offset, sixtieths of the excitation period (0..59) */
 static uint8_t loop_cad_abs;                 /* round 15: 1 = read period mod excitation period = phase/60 of the period */
@@ -165,6 +191,13 @@ static uint32_t loop_cad_pad;                /* round 21: idle cycles added to t
 static uint32_t loop_cad_frame;              /* round 22: frame period floor in cycles, 0 = off */
 static uint32_t loop_cad_next;               /* round 13: scheduled PA3 rise of the next cadence frame's first read (DWT) */
 static uint8_t loop_cad_next_valid;          /* loop_cad_next is set */
+#if PHASE_MODES
+static uint8_t loop_start_align = 255U;      /* round 42: 0..11 = cadence frame start forced to DWT mod 12 == this, else off */
+#endif
+#if ORDER_MODES || SETTLE_MODES
+static uint8_t loop_read_order;              /* round 44: 0 = X first, 1 = Y first, 2/3 = the same reversed */
+static uint16_t loop_frame_gap_extra;        /* round 44: extra cycles before the first burst of every frame */
+#endif
 static uint32_t loop_frame_max_late;         /* round 13: max lateness of reads 2.. of the latest cadence frame, cycles */
 /* Round 13 cadence budget (hardware, round 11 aux: PA2 low -> PA2 high 39 us with one
  * conversion, 47 us with three, i.e. a conversion takes about 255 cycles plus code). */
@@ -187,12 +220,19 @@ void sensing_frame_begin(void) {
   __asm volatile ("cpsid i" ::: "memory");
   frame_active = 1U;
   loop_in_mask = 0U;
+#if FRAME_AUX && defined(MODE1_IN)
+  loop_fn0 = USBFS_DSTS_FNSOF(USBFS_DSTS);
+#endif
   loop_read_count = 0U;
   loop_frame_first_late = 0U;
 }
 
 void sensing_frame_end(void) {
+#if FRAME_AUX && defined(MODE1_IN)
+  loop_in_mask |= sof_changed() << 15;
+#else
   loop_in_mask |= (USBFS_DIEPINT1 & USBFS_DIEPINT_XFRC) << 15;
+#endif
   frame_active = 0U;
   __asm volatile ("cpsie i" ::: "memory");
 }
@@ -206,6 +246,13 @@ void sensing_set_loop(uint32_t extra_gap_cyc, uint8_t extra_prep, uint8_t flags)
   loop_pulses = ((flags & SENSING_LOOP_PULSES28) != 0U) ? 28U : EXCITE_PULSES;
 }
 
+#if AXIS_GAP_MODES
+/* Round 50: extra gap for Y reads, on top of loop_extra_gap. */
+void sensing_set_loop_gap_y(uint16_t extra_cyc) {
+  loop_extra_gap_y = (extra_cyc > 14400U) ? 14400U : extra_cyc;
+}
+#endif
+
 /* The next burst starts `cyc` after the end of the latest read (or as soon as
  * the code before it gets there, if that is later). */
 void sensing_frame_gap(uint32_t cyc) {
@@ -213,9 +260,20 @@ void sensing_frame_gap(uint32_t cyc) {
   next_burst_valid = 1U;
 }
 
+#ifndef R59_MODES
+#define R59_MODES 0
+#endif
+/* Round 59: the 20-pulse ladder step needs adc1 5168 to keep the conversion
+ * instant of the 32-pulse control. */
+#if R59_MODES
+#define LOOP_ADC1_MAX_CYC 5200U
+#else
+#define LOOP_ADC1_MAX_CYC 5000U
+#endif
+
 void sensing_set_loop_analog(uint8_t pulses, uint32_t adc1_after_cyc) {
   loop_pulses = (pulses >= 8U && pulses <= 40U) ? pulses : (uint8_t)EXCITE_PULSES;
-  loop_adc1 = (adc1_after_cyc >= 1440U && adc1_after_cyc <= 5000U) ? adc1_after_cyc
+  loop_adc1 = (adc1_after_cyc >= 1440U && adc1_after_cyc <= LOOP_ADC1_MAX_CYC) ? adc1_after_cyc
                                                                    : ADC1_AFTER_PA2_LOW_CYC;
 }
 
@@ -295,6 +353,27 @@ void sensing_set_cadence_frame(uint32_t frame_cyc) {
   loop_cad_next_valid = 0U;
 }
 
+#if PHASE_MODES
+/* Round 42: align the cadence frame start phase to the ADC clock grid (see sensing.h). */
+void sensing_set_start_align(uint8_t align) {
+  loop_start_align = (align < 12U) ? align : 255U;
+  loop_cad_next_valid = 0U;
+}
+#endif
+
+#if ORDER_MODES || SETTLE_MODES
+/* Round 44: read order bits: 0 = Y first, 1 = reverse X window, 2 = reverse Y window. */
+void sensing_set_read_order(uint8_t order) {
+  loop_read_order = (order <= 7U) ? order : 0U;
+}
+
+/* Round 44: extra idle cycles before the first burst of every frame (0..4000). */
+void sensing_set_frame_gap(uint16_t gap_cyc) {
+  loop_frame_gap_extra = (gap_cyc <= 4000U) ? gap_cyc : 0U;
+  loop_cad_next_valid = 0U;
+}
+#endif
+
 /* Round 13: max lateness of the reads after the first of the latest cadence
  * frame, cycles (0 = every one started on its schedule). */
 uint32_t sensing_frame_max_late_cyc(void) {
@@ -324,6 +403,236 @@ static inline void wait_until(uint32_t deadline) {
   while ((int32_t)(DWT_CYCCNT - deadline) < 0) {
   }
 }
+
+#ifndef R55_MODES
+#define R55_MODES 0
+#endif
+#ifndef R56_MODES
+#define R56_MODES 0
+#endif
+#if R56_MODES && !R55_MODES
+#error "R56_MODES needs R55_MODES (build.ps1 -R56Modes sets both)"
+#endif
+#ifndef R57_MODES
+#define R57_MODES 0
+#endif
+#if R57_MODES && !R56_MODES
+#error "R57_MODES needs R56_MODES (build.ps1 -R57Modes sets R55/R56/R57)"
+#endif
+#ifndef R58_MODES
+#define R58_MODES 0
+#endif
+#if R58_MODES && !R57_MODES
+#error "R58_MODES needs R57_MODES (build.ps1 -R58Modes sets R55/R56/R57/R58)"
+#endif
+#if R59_MODES && !R58_MODES
+#error "R59_MODES needs R58_MODES (build.ps1 -R59Modes sets R55/R56/R57/R58/R59)"
+#endif
+#if R55_MODES
+/* Round 55 (-R55Modes): two per-mode mechanisms against read timing that
+ * changes from frame to frame (main.c selects them with sensing_set_r55()).
+ *   exact: the burst start (PA3 rise), PA2 low and the used conversion start
+ *     land on their DWT deadline to the cycle. wait_until() comes out 0..~5
+ *     cycles past the deadline depending on its loop phase at entry, and the
+ *     ADC start is synchronised to the ADC clock, so a few cycles can move the
+ *     sample instant by a whole ADC clock.
+ *   align: the first read of a cadence frame starts on a DWT grid of
+ *     r55_align_m cycles anchored at the previous aligned first read, so every
+ *     frame has the same phase against every clock divider that divides the
+ *     grid. The free-running images already have that (their frames are
+ *     exactly 71280 cycles apart); the IN-locked frames start wherever the
+ *     host's poll lands.
+ * Every landing records how many cycles past its deadline it came out
+ * (r55_land_seen, one bit per value), so the aux word shows whether the
+ * landing really is exact. */
+static uint8_t r55_exact;          /* 1 = land() uses wait_exact() */
+static uint32_t r55_align_m;       /* first-read grid in cycles, 0 = off (12 or 720) */
+static uint32_t r55_align_magic;   /* d / m = umulh(d >> pre, magic) >> post, exact for every 32-bit d */
+static uint8_t r55_align_pre;
+static uint8_t r55_align_post;
+static uint32_t r55_align_ref;     /* DWT of the latest aligned first read */
+#if R58_MODES
+/* Round 58 relative grids: the lattice is r55_align_ref + r58_ref_off + j m, with
+ * r58_ref_off = R58_HOST_FRAME_CYC mod m, so it contains r55_align_ref + 72000
+ * (the start one host frame after the previous first read) for any m.
+ * 0 for the grids that divide 72000 (12, 24, 72, 144, 720): unchanged lattice. */
+#define R58_HOST_FRAME_CYC 72000U
+static uint32_t r58_ref_off;
+#endif
+static uint32_t r55_land_seen;     /* bit e: a landing of this frame came e cycles after its deadline (31 = 31 or more) */
+#if R56_MODES
+static uint32_t r56_lead;          /* round 56: first read scheduled this many cycles late (0 = ASAP, the round 55 path) */
+#endif
+
+/* Cycle-exact wait. A coarse DWT loop exits 0..5 cycles after deadline - 40;
+ * a second DWT read measures the remainder, and a computed branch into a sled
+ * of single-cycle 32-bit instructions burns exactly that much minus the fixed
+ * cost of this tail (WAIT_EXACT_K = 12), so the function returns a constant
+ * number of cycles after `deadline` whatever the coarse loop's phase was.
+ * Needs zero flash wait states (board.c), interrupts masked, and an entry at
+ * least ~25 cycles before `deadline`; later entries saturate the sled at 0
+ * and return late (not exact), which the landing record shows.
+ * Every sled entry is a word-aligned 32-bit instruction, so the branch target
+ * alignment (and with it the refill cost) is the same for every remainder. */
+__attribute__((naked, noinline, aligned(4)))
+static void wait_exact(uint32_t deadline) {
+  __asm volatile(
+    "  ldr    r2, 3f\n"
+    "  sub    r1, r0, #40\n"
+    "1:\n"
+    "  ldr    r3, [r2]\n"
+    "  subs   r3, r3, r1\n"
+    "  bmi    1b\n"
+    "  ldr    r3, [r2]\n"
+    "  subs   r3, r0, r3\n"
+    "  subs   r3, #12\n"
+    "  usat   r3, #5, r3\n"
+    "  adr    r1, 2f\n"
+    "  sub.w  r1, r1, r3, lsl #2\n"
+    "  orr.w  r1, r1, #1\n"
+    "  bx     r1\n"
+    "  .p2align 2\n"
+    "  add.w  r12, r12, #0\n"   /* 31 entries: remainder 31 starts here */
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "  add.w  r12, r12, #0\n"
+    "2:\n"
+    "  bx     lr\n"
+    "  .p2align 2\n"
+    "3:\n"
+    "  .word  0xE0001004\n"     /* DWT_CYCCNT */
+  );
+}
+
+/* Wait for `deadline` (exactly in exact modes) and record the landing. */
+static inline __attribute__((always_inline)) void land(uint32_t deadline) {
+  if (r55_exact != 0U) {
+    wait_exact(deadline);
+  } else {
+    wait_until(deadline);
+  }
+  uint32_t e = DWT_CYCCNT - deadline;
+  __asm volatile ("usat %0, #5, %1" : "=r"(e) : "r"(e));
+  r55_land_seen |= 1UL << e;
+}
+
+/* The first DWT value >= s on the grid r55_align_m anchored at r55_align_ref.
+ * Constant time (one UMULL, no division, no branch). */
+static inline uint32_t r55_align(uint32_t s) {
+  const uint32_t m = r55_align_m;
+#if R58_MODES
+  const uint32_t d = s - r55_align_ref - r58_ref_off;
+#else
+  const uint32_t d = s - r55_align_ref;
+#endif
+  const uint32_t q = (uint32_t)(((uint64_t)(d >> r55_align_pre) * r55_align_magic) >> 32) >> r55_align_post;
+  const uint32_t r = d - q * m;                       /* d mod m */
+  const uint32_t nz = 0U - ((r | (0U - r)) >> 31);    /* all ones when r != 0 */
+  return s + ((m - r) & nz);
+}
+
+void sensing_set_r55(uint16_t align_m, uint8_t exact) {
+  r55_exact = (exact != 0U) ? 1U : 0U;
+#if R58_MODES
+  r58_ref_off = 0U;
+#endif
+  if (align_m == 12U) {
+    r55_align_m = 12U;
+    r55_align_magic = 0xAAAAAAABUL;   /* d / 12 = umulh(d, magic) >> 3 */
+    r55_align_pre = 0U;
+    r55_align_post = 3U;
+  } else if (align_m == 720U) {
+    r55_align_m = 720U;
+    r55_align_magic = 0x05B05B06UL;   /* d / 720 = umulh(d >> 4, magic), d >> 4 < 2^28 */
+    r55_align_pre = 4U;
+    r55_align_post = 0U;
+#if R57_MODES
+  } else if (align_m == 144U) {
+    r55_align_m = 144U;
+    r55_align_magic = 0x38E38E39UL;   /* round 57: d / 144 = (d >> 4) / 9 = umulh(d >> 4, magic) >> 1 */
+    r55_align_pre = 4U;
+    r55_align_post = 1U;
+  } else if (align_m == 72U) {
+    r55_align_m = 72U;
+    r55_align_magic = 0x38E38E39UL;   /* round 57: d / 72 = (d >> 3) / 9 */
+    r55_align_pre = 3U;
+    r55_align_post = 1U;
+  } else if (align_m == 24U) {
+    r55_align_m = 24U;
+    r55_align_magic = 0xAAAAAAABUL;   /* round 57: d / 24 = (d >> 3) / 3 = umulh(d >> 3, magic) >> 1 */
+    r55_align_pre = 3U;
+    r55_align_post = 1U;
+#endif
+#if R58_MODES
+  } else if (align_m == 834U) {
+    /* Round 58 relative grid, 6 excitation periods = 6 x 139: a grid step keeps
+     * the pen ring phase at the prep and the 6-cycle ADC clock phase. */
+    r55_align_m = 834U;
+    r55_align_magic = 0x9D2921C4UL;   /* d / 834 = (d >> 1) / 417 = umulh(d >> 1, magic) >> 8 (error 68 <= 2^9) */
+    r55_align_pre = 1U;
+    r55_align_post = 8U;
+    r58_ref_off = R58_HOST_FRAME_CYC % 834U;   /* 276 */
+  } else if (align_m == 139U) {
+    /* Round 58 relative grid, one excitation period: keeps the ring phase; the
+     * ADC clock phase moves by one cycle per grid step. */
+    r55_align_m = 139U;
+    r55_align_magic = 0xEBBDB2A6UL;   /* d / 139 = umulh(d, magic) >> 7 (error 34 <= 2^7) */
+    r55_align_pre = 0U;
+    r55_align_post = 7U;
+    r58_ref_off = R58_HOST_FRAME_CYC % 139U;   /* 137 */
+#endif
+  } else {
+    r55_align_m = 0U;
+  }
+}
+
+/* Latest cadence frame: (latest - earliest) landing offset in cycles,
+ * 0 = every landing came out the same number of cycles after its deadline. */
+uint32_t sensing_r55_land_spread(void) {
+  const uint32_t s = r55_land_seen;
+  if (s == 0U) {
+    return 0U;
+  }
+  return (31U - (uint32_t)__builtin_clz(s)) - (uint32_t)__builtin_ctz(s);
+}
+#if R56_MODES
+void sensing_set_r56_lead(uint32_t lead_cyc) {
+  r56_lead = (lead_cyc <= 20000U) ? lead_cyc : 0U;
+}
+#endif
+#define R55_FIRST_PARAM , uint8_t first
+#define R55_FIRST(v) , (v)
+#else
+#define R55_FIRST_PARAM
+#define R55_FIRST(v)
+#endif
 
 /* 0.6.5 variants (see sensing.h). Code for them is only emitted in telemetry
  * builds (all variants selectable at run time for the lab) or when a build
@@ -391,7 +700,7 @@ static void adc_init(void) {
 
   /* ADCPSC[1:0] = 10, ADCPSC[2] = 0, ADCSEL = 1: the stock image's register
    * values. On GD32 semantics this is APB2 / 6 = 12 MHz (APB2 undivided);
-   * the HV901 ADC clock is not proven to follow GD32 RCU semantics. ADCPSC2
+   * round 56 timing confirms it (S239.5 adds ~1188 cycles = 198 ADC clocks x 6). ADCPSC2
    * must stay clear: with ADCPSC=10 it selects AHB/7 instead. */
   RCU_CFG0 = (RCU_CFG0 & ~RCU_CFG0_ADCPSC_MASK) | (2UL << 14);
   RCU_CFG2 = (RCU_CFG2 & ~(RCU_CFG2_ADCPSC2 | RCU_CFG2_ADCSEL)) |
@@ -514,7 +823,11 @@ static uint16_t sample_window(uint32_t t_end, uint32_t gap_cyc SW_PARAM) {
 #endif
   adc_prime_dummy();
   const uint32_t t_lo = t_end + SW_PA2_LOW_CYC;
+#if R55_MODES
+  land(t_lo);
+#else
   wait_until(t_lo);
+#endif
   GPIOA_BC = (1UL << 2);           /* PA2 low: integrate */
 #if H420X_PROFILE == 4
   if (prep_pending) {
@@ -541,7 +854,11 @@ static uint16_t sample_window(uint32_t t_end, uint32_t gap_cyc SW_PARAM) {
     wait_until(at - ADC_STOCK_LEAD_CYC);
     adc_stock_regs(stock);
 #endif
+#if R55_MODES
+    land(at);
+#else
     wait_until(at);
+#endif
 #if LOOP_MODES
     s[i] = adc_sample(loop_sampt);
 #else
@@ -655,8 +972,12 @@ static uint32_t excite_coil(uint8_t tx_axis, uint8_t tx_coil, uint8_t bin,
 #if LOOP_MODES
   /* Round 11 diagnostic: had the host already taken the vendor report (EP1 IN
    * transfer complete) when this read of the frame started? Branch-free. */
+#if FRAME_AUX && defined(MODE1_IN)
+  loop_in_mask |= (sof_changed() & (uint32_t)frame_active) << (loop_read_count & 15U);
+#else
   loop_in_mask |= ((USBFS_DIEPINT1 & USBFS_DIEPINT_XFRC) & (uint32_t)frame_active)
                   << (loop_read_count & 15U);
+#endif
   loop_read_count++;
 #endif
 
@@ -1014,12 +1335,15 @@ int sensing_read_window(uint8_t axis, uint8_t center, uint8_t excite_center,
 /* PA3 rise -> PA3 rise of consecutive reads, cycles: the burst (PA3 rise ->
  * PA3 fall, see excite_coil()), PA2 low, the integration, the conversions, the
  * normal read gap and the run-time offset. */
-static uint32_t cadence_period(uint32_t period, uint32_t high) {
+#if AXIS_GAP_MODES
+/* Round 50: same period, but the caller chooses the axis gap for this read. */
+static uint32_t cadence_period_gap(uint32_t period, uint32_t high, uint32_t extra_gap) {
   const uint32_t base = (uint32_t)loop_pulses * period + 2U * high +
                         EXCITE_LEAD_EXTRA_CYC + EXCITE_TRAIL_EXTRA_CYC +
                         loop_pa2_low + loop_adc1 +
                         (uint32_t)(loop_nconv - 1U) * CAD_CONV_STEP_CYC +
-                        CAD_CONV_BUDGET_CYC + READ_GAP_CYC + loop_cad_pad;
+                        CAD_CONV_BUDGET_CYC + READ_GAP_CYC + extra_gap +
+                        loop_cad_pad;
   const uint32_t off = ((uint32_t)loop_cad_phase * period) / 60U;
   if (loop_cad_abs == 0U) {
     return base + off;
@@ -1027,6 +1351,26 @@ static uint32_t cadence_period(uint32_t period, uint32_t high) {
   const uint32_t lo = base - CAD_ABS_SLACK_CYC;
   return lo + ((off + period - (lo % period)) % period);
 }
+#else
+static uint32_t cadence_period(uint32_t period, uint32_t high) {
+  const uint32_t base = (uint32_t)loop_pulses * period + 2U * high +
+                        EXCITE_LEAD_EXTRA_CYC + EXCITE_TRAIL_EXTRA_CYC +
+                        loop_pa2_low + loop_adc1 +
+                        (uint32_t)(loop_nconv - 1U) * CAD_CONV_STEP_CYC +
+#if GAP_MODES || CONV_MODES || JITTER_MODES
+                        CAD_CONV_BUDGET_CYC + READ_GAP_CYC + loop_extra_gap +
+#else
+                        CAD_CONV_BUDGET_CYC + READ_GAP_CYC +
+#endif
+                        loop_cad_pad;
+  const uint32_t off = ((uint32_t)loop_cad_phase * period) / 60U;
+  if (loop_cad_abs == 0U) {
+    return base + off;
+  }
+  const uint32_t lo = base - CAD_ABS_SLACK_CYC;
+  return lo + ((off + period - (lo % period)) % period);
+}
+#endif
 
 /* One read with PA3 rising at *t (DWT), or as soon as the code gets there if
  * that is later; *t becomes the actual rise and *late how far it is past the
@@ -1035,7 +1379,11 @@ static uint32_t cadence_period(uint32_t period, uint32_t high) {
  * masked. Returns the sample (0 = ADC timeout). */
 static uint16_t cadence_read(const mux_entry_t *tx, const mux_entry_t *rx,
                              uint32_t *t, uint32_t period, uint32_t high,
-                             uint8_t variant, uint32_t *late) {
+                             uint8_t variant,
+#if AXIS_GAP_MODES
+                             uint32_t gap_cyc,
+#endif
+                             uint32_t *late R55_FIRST_PARAM) {
   const uint32_t pre = *t - LOOP_DWELL_LEAD_CYC;
   const int32_t rem = (int32_t)(pre - DWT_CYCCNT);
   if (rem > 0 && rem <= (int32_t)MAX_GAP_CYC) {
@@ -1055,10 +1403,20 @@ static uint16_t cadence_read(const mux_entry_t *tx, const mux_entry_t *rx,
   const uint32_t earliest = DWT_CYCCNT + PA15_SETTLE_CYC;
   const uint32_t d = earliest - *t;
   const uint32_t lm = 0U - (uint32_t)((int32_t)d > 0);
+#if R55_MODES
+  uint32_t start = (*t & ~lm) | (earliest & lm);
+  if (first != 0U && r55_align_m != 0U) {
+    start = r55_align(start);      /* round 55: the frame's first read on the DWT grid */
+  }
+  *late = d & lm;
+  *t = start;
+  land(start);
+#else
   const uint32_t start = (*t & ~lm) | (earliest & lm);
   *late = d & lm;
   *t = start;
   wait_until(start);
+#endif
   GPIOA_BOP = (1UL << 3);          /* PA3 driver enable */
 
   uint32_t edge = start + high + EXCITE_LEAD_EXTRA_CYC;
@@ -1076,8 +1434,54 @@ static uint16_t cadence_read(const mux_entry_t *tx, const mux_entry_t *rx,
   gpio_pull(GPIOA_BASE, 15U, GPIO_PULL_NONE);
   GPIOB_OCTL |= 0x78U;
   mux_select_receive(rx SW_ARG(variant));
+#if AXIS_GAP_MODES
+  return sample_window(t_end, gap_cyc SW_ARG(variant));
+#elif GAP_MODES || CONV_MODES || JITTER_MODES
+  return sample_window(t_end, (READ_GAP_CYC + loop_extra_gap) SW_ARG(variant));
+#else
   return sample_window(t_end, READ_GAP_CYC SW_ARG(variant));
+#endif
 }
+
+#if ORDER_MODES || SETTLE_MODES
+#if AXIS_GAP_MODES
+static uint8_t frame_axes[8];   /* round 50: receive axis of each read in the frame */
+#endif
+/* Round 44: append one receive window to the frame's read list.
+ * rx_axis 0 = X (transmit Y), 1 = Y (transmit X). skip omits slot 0, reverse
+ * reads the slots high-to-low. Returns 0, or -1 if a coil is out of range. */
+static int frame_append_window(uint8_t rx_axis, uint8_t rx_center, uint8_t tx_center,
+                               uint8_t skip, uint8_t reverse,
+                               const mux_entry_t **txs, const mux_entry_t **rxs,
+                               uint16_t **dst, unsigned *n, uint16_t *xa, uint16_t *ya) {
+  const uint8_t count = (rx_axis == 0U) ? COIL_COUNT_X : COIL_COUNT_Y;
+  const mux_entry_t *tx = (rx_axis == 0U) ? &y_mux[tx_center - 1U] : &x_mux[tx_center - 1U];
+  const mux_entry_t *rx = (rx_axis == 0U) ? x_mux : y_mux;
+  for (uint8_t i = 0U; i < 4U; i++) {
+    const uint8_t slot = reverse ? (uint8_t)(3U - i) : i;
+    if (slot < skip) {
+      continue;
+    }
+    int32_t coil = (int32_t)rx_center - 2 + (int32_t)slot;
+#if TRACK_EDGE_EXT
+    if (coil < 1) {
+      coil = 1;
+    }
+#endif
+    if (coil < 1 || coil > (int32_t)count) {
+      return -1;
+    }
+    txs[*n] = tx;
+    rxs[*n] = &rx[coil - 1];
+    dst[*n] = (rx_axis == 0U) ? &xa[slot] : &ya[slot];
+#if AXIS_GAP_MODES
+    frame_axes[*n] = rx_axis;
+#endif
+    (*n)++;
+  }
+  return 0;
+}
+#endif
 
 int sensing_read_frame(uint8_t x_center, uint8_t y_center, uint8_t bin,
                        uint16_t xa[4], uint16_t ya[4]) {
@@ -1096,6 +1500,31 @@ int sensing_read_frame(uint8_t x_center, uint8_t y_center, uint8_t bin,
   unsigned n = 0U;
   xa[0] = 0U;
   ya[0] = 0U;
+#if ORDER_MODES || SETTLE_MODES
+  const uint8_t order = loop_read_order;
+  const uint8_t y_first = order & 1U;
+  const uint8_t rev_x = (order >> 1) & 1U;
+  const uint8_t rev_y = (order >> 2) & 1U;
+  if (y_first != 0U) {
+    if (frame_append_window(1U, y_center, x_center, loop_skip_prep_y, rev_y,
+                            txs, rxs, dst, &n, xa, ya) != 0) {
+      return -1;
+    }
+    if (frame_append_window(0U, x_center, y_center, loop_skip_prep_x, rev_x,
+                            txs, rxs, dst, &n, xa, ya) != 0) {
+      return -1;
+    }
+  } else {
+    if (frame_append_window(0U, x_center, y_center, loop_skip_prep_x, rev_x,
+                            txs, rxs, dst, &n, xa, ya) != 0) {
+      return -1;
+    }
+    if (frame_append_window(1U, y_center, x_center, loop_skip_prep_y, rev_y,
+                            txs, rxs, dst, &n, xa, ya) != 0) {
+      return -1;
+    }
+  }
+#else
   for (unsigned slot = loop_skip_prep_x; slot < 4U; slot++) {
     int32_t coil = (int32_t)x_center - 2 + (int32_t)slot;
 #if TRACK_EDGE_EXT
@@ -1126,10 +1555,19 @@ int sensing_read_frame(uint8_t x_center, uint8_t y_center, uint8_t bin,
     dst[n] = &ya[slot];
     n++;
   }
+#endif
 
   const uint32_t period = (loop_cad_period != 0U) ? (uint32_t)loop_cad_period : excite_period_cyc[bin];
   const uint32_t high = period / 2U;
+#if AXIS_GAP_MODES
+  const uint32_t r_x = cadence_period_gap(period, high, loop_extra_gap);
+  const uint32_t r_y = cadence_period_gap(period, high,
+                                         loop_extra_gap + loop_extra_gap_y);
+  const uint32_t g_x = READ_GAP_CYC + loop_extra_gap;
+  const uint32_t g_y = READ_GAP_CYC + loop_extra_gap + loop_extra_gap_y;
+#else
   const uint32_t r = cadence_period(period, high);
+#endif
   const uint8_t variant = (uint8_t)(SENSING_VARIANT_DEFAULT | loop_variant);
   const uint32_t mask = irq_save();
 
@@ -1142,9 +1580,45 @@ int sensing_read_frame(uint8_t x_center, uint8_t y_center, uint8_t bin,
       (int32_t)(loop_cad_next - t) <= (int32_t)MAX_GAP_CYC) {
     t = loop_cad_next;
   }
+#if ORDER_MODES || SETTLE_MODES
+  t += loop_frame_gap_extra;       /* round 44: extra settle before the first burst */
+#endif
+#if PHASE_MODES
+  if (loop_start_align < 12U) {
+    /* Delay the frame start by 0..11 cycles so that t mod 12 == loop_start_align. */
+    t += ((uint32_t)loop_start_align + 12U - (t % 12U)) % 12U;
+  }
+#endif
+#if R56_MODES
+  if (r56_lead != 0U) {
+    /* Round 56: the first read goes r56_lead cycles later than as soon as possible,
+     * on the DWELL path (cadence_read() waits with every mux deselected until
+     * LOOP_DWELL_LEAD_CYC before the burst). The grid alignment is applied here,
+     * before that wait, so the TX mux settle stays LOOP_DWELL_LEAD_CYC; the
+     * first-read alignment in cadence_read() then finds t already on the grid. */
+    t = DWT_CYCCNT + LOOP_DWELL_LEAD_CYC + r56_lead;
+    if (r55_align_m != 0U) {
+      t = r55_align(t);
+    }
+  }
+#endif
   uint32_t late = 0U;
-  uint16_t v = cadence_read(txs[0], rxs[0], &t, period, high, variant, &late);
+#if R55_MODES
+  r55_land_seen = 0U;
+#endif
+#if AXIS_GAP_MODES
+  uint8_t prev_axis = frame_axes[0];
+  uint16_t v = cadence_read(txs[0], rxs[0], &t, period, high, variant,
+                            (prev_axis == AXIS_Y) ? g_y : g_x, &late R55_FIRST(1U));
+#else
+  uint16_t v = cadence_read(txs[0], rxs[0], &t, period, high, variant, &late R55_FIRST(1U));
+#endif
   const uint32_t t_first = t;      /* actual PA3 rise of the frame's first read */
+#if R55_MODES
+  if (r55_align_m != 0U) {
+    r55_align_ref = t_first;       /* the next aligned frame keeps this phase */
+  }
+#endif
 #if FRAME_AUX
   if (loop_prev_frame_valid) {
     loop_frame_period_cyc = t_first - loop_prev_frame_first;
@@ -1157,14 +1631,26 @@ int sensing_read_frame(uint8_t x_center, uint8_t y_center, uint8_t bin,
   uint32_t max_late = 0U;
   int result = (v == 0U) ? -1 : 0;
   for (unsigned k = 1U; k < n && result == 0; k++) {
+#if AXIS_GAP_MODES
+    const uint32_t r_prev = (prev_axis == AXIS_Y) ? r_y : r_x;
+    const uint32_t g_cur = (frame_axes[k] == AXIS_Y) ? g_y : g_x;
+    t += r_prev;
+    v = cadence_read(txs[k], rxs[k], &t, period, high, variant, g_cur, &late R55_FIRST(0U));
+    prev_axis = frame_axes[k];
+#else
     t += r;
-    v = cadence_read(txs[k], rxs[k], &t, period, high, variant, &late);
+    v = cadence_read(txs[k], rxs[k], &t, period, high, variant, &late R55_FIRST(0U));
+#endif
     *dst[k] = v;
     max_late = (late > max_late) ? late : max_late;
     result = (v == 0U) ? -1 : 0;
   }
   loop_frame_max_late = max_late;
+#if AXIS_GAP_MODES
+  uint32_t next = t + ((prev_axis == AXIS_Y) ? r_y : r_x) + CAD_FRAME_EXTRA_CYC;
+#else
   uint32_t next = t + r + CAD_FRAME_EXTRA_CYC;
+#endif
   if (loop_cad_frame != 0U && (int32_t)((t_first + loop_cad_frame) - next) > 0) {
     next = t_first + loop_cad_frame;   /* round 22: frame period floor */
   }

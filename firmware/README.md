@@ -1,10 +1,9 @@
-# Firmware source and build (stable)
+# Firmware source and build
 
-This directory is the complete source for the stable `rhythm1000.bin` image.
-The optional WIP image (`rhythm1015-wip.bin`) is built from `firmware-wip/`;
-see `firmware-wip/README.md`. No firmware binary is stored in the repository:
-both images are built by `.github/workflows/build.yml` and attached to the
-GitHub release.
+This directory is the complete source for the `rhythm1000.bin` image. No firmware
+binary is stored in the repository: the image is built by
+`.github/workflows/build.yml` and packaged in `H420X-Flasher.zip` on the GitHub
+release.
 
 ## Layout
 
@@ -31,10 +30,11 @@ From the repository root:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
-  -Profile rhythm900 -Robust -EdgeExt `
-  -SamptModes -LoopMode 3 -LoopArm -Release -CadReset 256 `
+  -Clean -Profile rhythm900 -Robust -EdgeExt `
+  -Scan1kModes -AxisGapModes -LoopMode 3 -LoopArm -Release `
+  -CadReset 256 -ReadGap 50 `
   -StockIdentity -SerialNumber 20210233 `
-  -LateConnect -QuietHeartbeat
+  -LateConnect -QuietHeartbeat -FastEp1 -R59Modes -NoR55Aux
 ```
 
 `-Clean` removes the object directory first; CI always uses it.
@@ -42,10 +42,10 @@ powershell -ExecutionPolicy Bypass -File firmware/build.ps1 `
 Outputs in `firmware/build/`:
 
 ```text
-h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256_app.bin
-h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256.elf
-h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256.map
-h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256.lst
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux_app.bin
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.elf
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.map
+h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.lst
 ```
 
 The `_app.bin` is the 32,000-byte DFU payload (0xFF padded).
@@ -54,12 +54,12 @@ The `_app.bin` is the 32,000-byte DFU payload (0xFF padded).
 
 ```powershell
 python firmware/tools/verify_image.py `
-  --elf firmware/build/h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256.elf `
-  --bin firmware/build/h420x_rhythm900_robust_edge_sampt_samptmode3_arm_release_stockid_lateconnect_quiet_sn20210233_cadreset256_app.bin
+  --elf firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux.elf `
+  --bin firmware/build/h420x_rhythm900_robust_edge_gap50_scan1k_scan1kmode3_arm_release_stockid_axisgapmodes_lateconnect_quiet_sn20210233_cadreset256_fastep1_r59modes_noaux_app.bin
 ```
 
 Expected: `96 passed, 0 failed`, 32,000-byte payload, SHA-256
-`00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171`.
+`08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1`.
 
 The verifier does not use the firmware sources or linker map. It parses the ELF,
 reconstructs the loadable image, and checks the boot contract, USB descriptors,
@@ -73,10 +73,10 @@ HID report descriptors and DFU padding directly.
 2. runs the build above,
 3. runs the verifier,
 4. fails unless the finished image hash is
-   `00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171`,
+   `08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1`,
 5. assembles `H420X-Flasher.zip` (flasher + built image + README/hashes),
-6. uploads the zip and the standalone image as artifacts and, on a version tag,
-   attaches them and their SHA-256 files to the GitHub release.
+6. uploads the zip as an artifact and, on a version tag, attaches it to the
+   GitHub release.
 
-The release assets are therefore the workflow's output, not binaries built on a
+The release asset is therefore the workflow's output, not a binary built on a
 developer machine.

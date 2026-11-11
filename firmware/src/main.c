@@ -67,6 +67,9 @@
 #ifndef FRAME_AUX
 #define FRAME_AUX 0      /* build.ps1 -FrameAux: aux low 11 bits = measured cadence frame period, us */
 #endif
+#ifndef WAVE_AUX
+#define WAVE_AUX 0       /* build.ps1 -WaveAux: aux = one raw window read per frame (round 41 diagnostic) */
+#endif
 #ifndef LATE_CONNECT
 #define LATE_CONNECT 0   /* build.ps1 -LateConnect: hold USB D+ down until sensing_init finishes */
 #endif
@@ -81,6 +84,72 @@
 #endif
 #ifndef FINE_MODES
 #define FINE_MODES 0     /* build.ps1 -FineModes: hyst/e rotation at S41.5 (round 38) */
+#endif
+#ifndef RATE_MODES
+#define RATE_MODES 0     /* build.ps1 -RateModes: 800 Hz rate/scanning rotation (round 39) */
+#endif
+#ifndef SCAN1K_MODES
+#define SCAN1K_MODES 0   /* build.ps1 -Scan1kModes: 1 kHz long-window/frame-floor rotation (round 40) */
+#endif
+#ifndef PHASE_MODES
+#define PHASE_MODES 0    /* build.ps1 -PhaseModes (needs -Scan1kModes): frame start phase alignment rotation (round 42) */
+#endif
+#ifndef ORDER_MODES
+#define ORDER_MODES 0    /* build.ps1 -OrderModes (needs -Scan1kModes): read-order rotation (round 44) */
+#endif
+#ifndef SETTLE_MODES
+#define SETTLE_MODES 0   /* build.ps1 -SettleModes (needs -Scan1kModes): settle-gap/floor rotation (round 44) */
+#endif
+#ifndef YPREP_MODES
+#define YPREP_MODES 0    /* build.ps1 -YPrepModes (needs -Scan1kModes): Y-first + Y prep / no X prep rotation (round 45) */
+#endif
+#ifndef GAP_MODES
+#define GAP_MODES 0      /* build.ps1 -GapModes (needs -Scan1kModes): read-gap sweep (round 49A) */
+#endif
+#ifndef CONV_MODES
+#define CONV_MODES 0     /* build.ps1 -ConvModes (needs -Scan1kModes): sample-time / median-of-3 sweep (round 49B) */
+#endif
+#ifndef JITTER_MODES
+#define JITTER_MODES 0   /* build.ps1 -JitterModes (needs -Scan1kModes): longer sample + gap combination (round 49C) */
+#endif
+#ifndef AXIS_GAP_MODES
+#define AXIS_GAP_MODES 0 /* build.ps1 -AxisGapModes (needs -Scan1kModes): per-axis read-gap sweep (round 50) */
+#endif
+#ifndef FRAME_FLOOR_US
+#define FRAME_FLOOR_US 0 /* build.ps1 -FrameFloorUs <us>: override the per-mode cadence frame floor */
+#endif
+#ifndef R55_MODES
+#define R55_MODES 0      /* build.ps1 -R55Modes (needs -AxisGapModes -FastEp1): start alignment / exact landing rotation (round 55) */
+#endif
+#if R55_MODES && !(AXIS_GAP_MODES && defined(FAST_EP1) && FAST_EP1)
+#error "-R55Modes needs -AxisGapModes and -FastEp1"
+#endif
+#ifndef R56_MODES
+#define R56_MODES 0      /* build.ps1 -R56Modes (implies -R55Modes): no-Y-prep / longer-read rotation (round 56) */
+#endif
+#if R56_MODES && !R55_MODES
+#error "-R56Modes needs the round 55 machinery (R55_MODES)"
+#endif
+#ifndef R57_MODES
+#define R57_MODES 0      /* build.ps1 -R57Modes (implies -R56Modes): DWELL-start prep / grid-size rotation (round 57) */
+#endif
+#if R57_MODES && !R56_MODES
+#error "-R57Modes needs the round 56 machinery (R56_MODES)"
+#endif
+#ifndef R58_MODES
+#define R58_MODES 0      /* build.ps1 -R58Modes (implies -R57Modes): relative grids / same-hold ADC window / pulse-integration rotation (round 58) */
+#endif
+#if R58_MODES && !R57_MODES
+#error "-R58Modes needs the round 57 machinery (R57_MODES)"
+#endif
+#ifndef R59_MODES
+#define R59_MODES 0      /* build.ps1 -R59Modes (implies -R58Modes): pulse ladder 32..20 on the relative 139-cycle grid (round 59) */
+#endif
+#if R59_MODES && !R58_MODES
+#error "-R59Modes needs the round 58 machinery (R58_MODES)"
+#endif
+#ifndef R55_AUX
+#define R55_AUX 1        /* build.ps1 -NoR55Aux sets 0: no R55 aux, the report falls through to the release aux zero */
 #endif
 #ifndef LOOP_HEARTBEAT
 #define LOOP_HEARTBEAT 0 /* build.ps1 -Release: heartbeat only, no diagnostic aux/UART */
@@ -151,9 +220,16 @@ void USBFS_IRQHandler(void) {
 /* ------------------------------------------------------------------------- */
 /* Common USB callbacks                                                      */
 /* ------------------------------------------------------------------------- */
+#if defined(FAST_EP1) && FAST_EP1
+#include "report.h"
+#endif
+
 void tud_mount_cb(void) {
 #if LOOP_MODES && LOOP_DIAG
   loop_usb_events++;
+#endif
+#if defined(FAST_EP1) && FAST_EP1
+  report_fast_reset();   /* new configuration: EP1 was re-opened, mask its IN interrupt again */
 #endif
   uart_puts("usb=mounted\r\n");
 }
@@ -161,6 +237,9 @@ void tud_mount_cb(void) {
 void tud_umount_cb(void) {
 #if LOOP_MODES && LOOP_DIAG
   loop_usb_events++;
+#endif
+#if defined(FAST_EP1) && FAST_EP1
+  report_fast_reset();
 #endif
   uart_puts("usb=unmounted\r\n");
 }
@@ -504,9 +583,15 @@ static void service_usb(void) {
 #define LOOP_HYST_NORMAL      5U                              /* tracker default: 1/32 */
 #define LOOP_SOF_PERIOD_CYC   (CPU_HZ / 1000UL)               /* one USB frame: 72000 */
 #define LOOP_SOF_GUARD_CYC    (40UL * (CPU_HZ / 1000000UL))   /* no USB work in the last 40 us before the predicted edge */
-#define LOOP_SOF_LEAD_CYC     (10UL * (CPU_HZ / 1000000UL))   /* first burst 10 us after the edge */
+#ifndef SOF_LEAD_US
+#define SOF_LEAD_US 10UL   /* build.ps1 -SofLeadUs <us> (round 53) */
+#endif
+#define LOOP_SOF_LEAD_CYC     (SOF_LEAD_US * (CPU_HZ / 1000000UL))   /* first burst SOF_LEAD_US after the edge */
 #define LOOP_SOF_TIMEOUT_CYC  (1100UL * (CPU_HZ / 1000000UL)) /* no edge: start the frame anyway */
-#define LOOP_IN_EPS_CYC       (10UL * (CPU_HZ / 1000000UL))   /* IN: first burst 10 us after the IN completion */
+#ifndef IN_EPS_US
+#define IN_EPS_US 10UL   /* build.ps1 -InEpsUs <us> (round 54) */
+#endif
+#define LOOP_IN_EPS_CYC       (IN_EPS_US * (CPU_HZ / 1000000UL))   /* IN: first burst IN_EPS_US after the IN completion */
 #define LOOP_IN_TIMEOUT_CYC   (1100UL * (CPU_HZ / 1000000UL)) /* IN: no completion: start the frame anyway */
 #define LOOP_MAINT_FRAMES     128U                            /* bin maintenance interval, HOOK / FREE */
 #define LOOP_MAINT_FRAMES_SOF 1024U                           /* SOF / IN: a maintenance costs one USB frame */
@@ -538,9 +623,354 @@ typedef struct {
   int16_t e_x;          /* fixed X slot-gain correction (round 26) */
   int16_t e_y;          /* fixed Y slot-gain correction (round 26) */
   uint8_t sampt;        /* ADC sample-time code (round 35; 0 = 13.5 cycles) */
+#if PHASE_MODES
+  uint8_t align;        /* round 42: 0..11 = cadence frame start forced to DWT mod 12 == align, 255 = unaligned */
+#endif
+#if ORDER_MODES || SETTLE_MODES
+  uint8_t order;        /* round 44: bit 0 = Y first, bit 1 = reverse X, bit 2 = reverse Y */
+  uint16_t gap_cyc;     /* round 44: extra idle cycles before the first burst of every frame */
+#endif
+#if AXIS_GAP_MODES
+  uint16_t gap_y;       /* round 50: extra Y read gap on top of gap_cyc */
+#endif
+#if R55_MODES
+  uint16_t r55_align;   /* round 55: first read on a DWT grid of this many cycles (12 or 720; R57 24/72/144; R58 834/139 relative), 0 = off */
+  uint8_t r55_exact;    /* round 55: 1 = cycle-exact burst start, PA2 low and conversion start */
+#endif
+#if R56_MODES
+  uint16_t r56_lead;    /* round 56: first read this many cycles after ASAP (keeps the used reads in the control's slots), 0 = ASAP */
+#endif
 } loop_mode_def;
 
-#if FINE_MODES
+/* Candidate-only overrides for the fixed mode-1 row. Defaults reproduce the
+ * current 1015 control byte for byte. build.ps1 -Pa2Cyc / -SofLock set them. */
+#ifndef PA2_MODE1_CYC
+#define PA2_MODE1_CYC 468U
+#endif
+#if defined(MODE1_SOF) && defined(MODE1_IN)
+#error "-SofLock and -InLock cannot be combined"
+#endif
+#ifdef MODE1_SOF
+#define MODE1_LOCK LOOP_LOCK_SOF
+#elif defined(MODE1_IN)
+#define MODE1_LOCK LOOP_LOCK_IN   /* round 54 -InLock */
+#else
+#define MODE1_LOCK LOOP_LOCK_FREE
+#endif
+
+#if R59_MODES
+/* Round 59: the pulse ladder. Every mode is round 58 mode 3 (DW R139: IN lock,
+ * cycle-exact landings, the Y prep read started on the DWELL path with
+ * r56_lead 250, the relative 139-cycle first-read grid; S41.5, one conversion,
+ * pa2 468, X387 / Y387 read gap, bin 9, learner off) with fewer excitation
+ * pulses. Each 2 pulses removed (278 cycles) move adc1 278 cycles later, so the
+ * conversion instant, the read period (9630 cycles) and the read slack do not
+ * change, and the phase relative to the excitation is kept (278 = 2 x 139).
+ * Round 58 at the same conversion instant gave Y 2.95 / 2.57 / 2.38 for
+ * 36 / 32 / 28 pulses; this finds where that trend turns over.
+ *   1 32p adc1 3500 (control)   2 30p adc1 3778   3 28p adc1 4056
+ *   4 26p adc1 4334             5 24p adc1 4612   6 22p adc1 4890
+ *   7 20p adc1 5168
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U },   /* 0 HOOK            */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 1 32p (ctrl)      */
+  { 30U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3778U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 2 30p             */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 3 28p             */
+  { 26U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4334U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 4 26p             */
+  { 24U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4612U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 5 24p             */
+  { 22U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4890U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 6 22p             */
+  { 20U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  5168U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 7 20p             */
+};
+#elif R58_MODES
+/* Round 58: every mode is round 57 mode 3 (DW A144: IN lock, cycle-exact
+ * landings, the Y prep read started on the DWELL path with r56_lead 250, the
+ * 144-cycle first-read grid; S41.5, 32 pulses, one conversion, adc3500 /
+ * pa2 468, X387 / Y387 read gap, bin 9, learner off) except for what the row
+ * changes. Every row keeps the read period at 9630 cycles and the conversion
+ * end where mode 1 has it, so no read can run late.
+ * Round 57 showed that a frame whose start crosses a grid step (host drift
+ * ~9.35 cycles per frame, so drift / m of the frames) starts m cycles later,
+ * which turns the pen's residual ring at the prep by (m mod 139) / 139 of a
+ * period and moves Y. Relative grids make that step a multiple of 139:
+ *   1 DW A144 (control = release candidate 3)
+ *   2 DW R834          steps of 6 x 139: ring phase and ADC clock phase kept
+ *   3 DW R139          steps of 139: ring phase kept, ADC clock phase +1 cycle per step
+ *   4 S71.5 same-hold  sample time 71.5, the window starts 180 cycles earlier
+ *                      (adc1 3320, pad 180): same hold instant and conversion end
+ *   5 S239.5 same-hold sample time 239.5, starts 1188 cycles earlier (adc1 2312, pad 1188)
+ *   6 28p late-conv    28 pulses, adc1 4056: same conversion instant, 556 cycles more integration
+ *   7 36p early-conv   36 pulses, adc1 2944: same conversion instant, 556 cycles less integration
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U },   /* 0 HOOK            */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  144U, 1U,  250U },   /* 1 DW A144 (ctrl)  */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  834U, 1U,  250U },   /* 2 DW R834         */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  139U, 1U,  250U },   /* 3 DW R139         */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3320U,  468U,    180U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,  337U,    0U,  144U, 1U,  250U },   /* 4 S71.5 same-hold */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  2312U,  468U,   1188U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5, 1U,  337U,    0U,  144U, 1U,  250U },   /* 5 S239.5 same-hld */
+  { 28U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4056U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  144U, 1U,  250U },   /* 6 28p late-conv   */
+  { 36U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  2944U,  468U,      0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  144U, 1U,  250U },   /* 7 36p early-conv  */
+};
+#elif R57_MODES
+/* Round 57: every mode is round 55 mode 5 (IN lock, cycle-exact landings, the
+ * Y prep read kept; S41.5, 32 pulses, one conversion, adc3500 / pa2 468,
+ * X387 / Y387 read gap, bin 9, learner off) except for what the row changes.
+ * Round 56 showed that mode 5's prep read starts on the late path: its TX mux
+ * is selected 168 + (A720 delay, 0..719) cycles before the burst, and that
+ * variable settle moves Y1 (about 1.5 units of middle-row Y RMS). A non-zero
+ * r56_lead starts the frame on the DWELL path instead: the grid alignment is
+ * applied first, then the TX mux is selected a constant LOOP_DWELL_LEAD_CYC
+ * before the burst. The lead must exceed the ~100 cycles of code between the
+ * DWT read in sensing_read_frame() and the pre-wait check in cadence_read(),
+ * or the pre-wait is skipped and the settle varies again: lead 250 (3.5 us).
+ *   1 control (round 55 mode 5, late-path prep, A720)
+ *   2 DW A720       DWELL-start prep, 720-cycle grid
+ *   3 DW A144       144-cycle grid (A720 delay 0..2 us instead of 0..10)
+ *   4 DW A72        72-cycle grid
+ *   5 DW A24        24-cycle grid
+ *   6 DW A72 L700   lead 700: the prep 450 cycles (6.25 us) later than mode 4
+ *   7 NP            round 56 mode 2: no prep, same slots (still-pen reference)
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U },   /* 0 HOOK            */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U,    0U },   /* 1 control (R55 5) */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U,  250U },   /* 2 DW A720         */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  144U, 1U,  250U },   /* 3 DW A144         */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,   72U, 1U,  250U },   /* 4 DW A72          */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,   24U, 1U,  250U },   /* 5 DW A24          */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,   72U, 1U,  700U },   /* 6 DW A72 L700     */
+  { 32U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U, 9330U },   /* 7 NP (R56 2)      */
+};
+#elif R56_MODES
+/* Round 56: every mode is round 55 mode 5 (IN lock, first read on the 720-cycle
+ * grid, cycle-exact landings; S41.5, 32 pulses, one conversion, adc3500 /
+ * pa2 468, X387 / Y387 read gap, bin 9, learner off) except for what the row
+ * changes. Modes 2-7 drop the discarded Y prep read and spend its time:
+ *   1 control (round 55 mode 5, with the Y prep read)
+ *   2 NP            no Y prep, same read slots as 1 (lead = one read)
+ *   3 NP adc4250    PA2 low -> conversion 4250 cycles (59.0 us, 1 = 48.6 us)
+ *   4 NP adc5000    5000 cycles (69.4 us)
+ *   5 NP 40p        40 excitation pulses
+ *   6 NP S239.5     ADC sample time 239.5 (pad 1200 keeps the read gap)
+ *   7 NP 36p adc4000
+ * r56_lead puts each mode's last conversion where mode 1 has it (minus the
+ * 168 + code cycles of mode 1's late-path start), so every mode reports from
+ * the end of the frame and keeps mode 1's IN-wait margin. Longer reads only
+ * make the earliest reads older (mean sample age Y +39..+78 us, X +10..+19 us; development/cleanroom_rounds/r56_model.py).
+ * Aux as round 55 (bits 0-5 IN wait us, 6-9 landing spread, 13-15 mode). */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad    frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact lead */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,     0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,   0U,    0U,    0U,    0U, 0U,    0U },   /* 0 HOOK            */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U,    0U },   /* 1 control (R55 5) */
+  { 32U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U, 9330U },   /* 2 NP              */
+  { 32U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4250U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U, 5105U },   /* 3 NP adc4250      */
+  { 32U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  5000U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U,  880U },   /* 4 NP adc5000      */
+  { 40U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U, 2658U },   /* 5 NP 40p          */
+  { 32U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,  1200U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5,  1U,  337U,    0U,  720U, 1U, 2582U },   /* 6 NP S239.5       */
+  { 36U, LOOP_LOCK_IN,   1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  4000U,  468U,     0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   1U,  337U,    0U,  720U, 1U, 3409U },   /* 7 NP 36p adc4000  */
+};
+#elif R55_MODES
+/* Round 55: every mode is the round 54 G read (S41.5, 32 pulses, one
+ * conversion, Y-first with the Y prep read, adc3500 / pa2 468, X387 / Y387
+ * read gap, bin 9, learner off; build with -ReadGap 50 -FastEp1). Modes 1-5
+ * start each frame on the host's IN poll (G); modes 6-7 are free-running with
+ * the 990 us floor (C). The two mechanisms (see sensing.c):
+ *   A12 / A720: the frame's first read on a 12 / 720-cycle DWT grid
+ *   exact:      cycle-exact burst start, PA2 low and conversion start
+ *   1 G control      IN               5 IN A720 exact
+ *   2 IN A12         IN               6 C control (free 990)
+ *   3 IN A720        IN               7 C A720 exact (free 990)
+ *   4 IN exact       IN
+ * Aux (wire bytes 10-11): bits 0-5 IN wait in us (IN modes) or the first
+ * read's lateness in us (free), saturating 63; bits 6-9 landing spread in
+ * cycles (0 = exact), saturating 15; bit 10 more than one pass; bit 11 the
+ * frame did not start on an IN completion; bit 12 a later read started late;
+ * bits 13-15 mode. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap    gapy  align exact */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U,    0U,    0U, 0U },   /* 0 HOOK */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,    0U, 0U },   /* 1 G control       */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,   12U, 0U },   /* 2 IN A12          */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  720U, 0U },   /* 3 IN A720         */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,    0U, 1U },   /* 4 IN exact        */
+  { 32U, LOOP_LOCK_IN,   1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   900U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  720U, 1U },   /* 5 IN A720 exact   */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   990U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,    0U, 0U },   /* 6 C control       */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,   990U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U,  720U, 1U },   /* 7 C A720 exact    */
+};
+#elif YPREP_MODES
+/* Round 48: Y-prep 7R with the same 32 pulses but shorter ADC/conversion
+ * delays. All modes are Y-first, Y prep kept, X prep dropped, no gap, 1000 us
+ * floor. Modes 2-4 shorten adc1 (PA2 low -> conversion start); modes 5-7 also
+ * shorten pa2_low (PA3 fall -> PA2 low). Goal: save ~27 us/frame without
+ * cutting a read. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 1 adc3696 pa2 468 control */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 2 adc3500 pa2 468 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3300U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 3 adc3300 pa2 468 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3100U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 4 adc3100 pa2 468 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  400U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 5 adc3696 pa2 400 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  400U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 6 adc3500 pa2 400 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3300U,  400U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 7 adc3300 pa2 400 */
+};
+#elif AXIS_GAP_MODES
+/* Round 50: per-axis read-gap sweep on the round-48 winner. Build with
+ * -ReadGap 50, so gap_cyc is the extra X gap and gap_y the extra Y gap on
+ * top of it. The frame's cadence schedule uses a separate period for X and Y
+ * reads; this tests whether the short-global-gap Y state needs a longer Y
+ * settle while X stays fast. Modes: true 387/387 control, then X50 with Y
+ * gap 50/150/250/387, then the same at S71.5. All 32 pulses, adc3500/pa2 468,
+ * Y-prep 7R, 1000 us floor. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U,    0U },   /* 0 HOOK */
+  { 32U, MODE1_LOCK, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  PA2_MODE1_CYC,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U,    0U },   /* 1 S41.5 X387 Y387 control */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U,    0U },   /* 2 S41.5 X50 Y50          */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U,  100U },   /* 3 S41.5 X50 Y150         */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U,  200U },   /* 4 S41.5 X50 Y250         */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U,  337U },   /* 5 S41.5 X50 Y387         */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,    0U,  100U },   /* 6 S71.5 X50 Y150         */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,    0U,  200U },   /* 7 S71.5 X50 Y250         */
+};
+#elif GAP_MODES
+/* Round 49A: read-to-read gap sweep on the round-48 winner. Build with
+ * -ReadGap 50, so mode 1 (extra 337) is the 387-cycle control and mode 7
+ * (extra 0) is the 50-cycle target. All modes: adc3500 / pa2 468, S41.5,
+ * 32 pulses, Y-prep 7R, 1000 us floor. Expected rate 968.5 -> ~1000 Hz. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U },   /* 1 gap 387 control */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  287U },   /* 2 gap 337      */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  237U },   /* 3 gap 287      */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  187U },   /* 4 gap 237      */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  137U },   /* 5 gap 187      */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,   50U },   /* 6 gap 100      */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 7 gap 50       */
+};
+#elif CONV_MODES
+/* Round 49B: conversion-budget / sample-window / median-of-3 rotation on the
+ * round-48 winner. Build with -ConvBudget 350 (the measured worst case was
+ * 335 cycles). Modes 1-5 sweep the ADC sample window with one conversion;
+ * modes 6-7 use the same-frame median of three at S41.5/S71.5. All modes:
+ * adc3500 / pa2 468, 32 pulses, Y-prep 7R, 387-cycle read gap, 1000 us floor. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 1 S41.5 1conv   */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_28_5,  1U,    0U },   /* 2 S28.5 1conv   */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,    0U },   /* 3 S71.5 1conv   */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5, 1U,    0U },   /* 4 S239.5 1conv  */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_13_5,  1U,    0U },   /* 5 S13.5 1conv   */
+  { 32U, LOOP_LOCK_FREE, 3U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 6 S41.5 median3 */
+  { 32U, LOOP_LOCK_FREE, 3U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,    0U },   /* 7 S71.5 median3 */
+};
+#elif JITTER_MODES
+/* Round 49C: longer sample window + shorter read gap. Build with -ReadGap 50
+ * and -ConvBudget 350. Mode 1 (extra 337) is the S41.5 / 387-cycle control;
+ * modes 2-5 keep S71.5 while the gap falls 337 -> 187; mode 6 tests S239.5 at
+ * a 100-cycle gap; mode 7 is S71.5 at the 50-cycle target. All modes: adc3500
+ * / pa2 468, 32 pulses, Y-prep 7R, 1000 us floor. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  337U },   /* 1 S41.5 gap 387 control */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,  287U },   /* 2 S71.5 gap 337 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,  237U },   /* 3 S71.5 gap 287 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,  187U },   /* 4 S71.5 gap 237 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,  137U },   /* 5 S71.5 gap 187 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5, 1U,   50U },   /* 6 S239.5 gap 100 */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3500U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5,  1U,    0U },   /* 7 S71.5 gap 50  */
+};
+#elif ORDER_MODES
+/* Round 44a: read-order rotation. All modes are the 00d11f9e configuration
+ * (S41.5, 32 pulses, one conversion, bin 9, P32-C4164, 1002 us floor, 1/32
+ * hysteresis, learner off). Modes 1-7 change only the order of the 7 or 8
+ * reads: X-first/Y-first, 7R (no Y preparation read) or 8R, and forward or
+ * reversed slots within each window. Mode 7 adds the 1004 us floor. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,    0U },   /* 1 X-first 7R    */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,    0U },   /* 2 X-first 8R    */
+  { 32U, LOOP_LOCK_FREE, 1U, 0U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 3 Y-first 8R    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 4 Y-first 7R    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  4U,    0U },   /* 5 X-rev 7R      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  5U,    0U },   /* 6 Y-first X-rev */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1004U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,    0U },   /* 7 Y-first 1004  */
+};
+#elif SETTLE_MODES
+/* Round 44b: settle-gap / frame-floor rotation. Mode 1 is the control and mode
+ * 2 is the known-safe 1004 us floor, so one bad gap mode cannot hide the floor
+ * result. Modes 3-5 add 4/8/16 us before the first burst, mode 6 is Y-first +
+ * 8 us, mode 7 combines Y-first + 8 us + 1004 us. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            order gap */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  0U,    0U },   /* 0 HOOK          */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,    0U },   /* 1 base          */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1004U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,    0U },   /* 2 floor 1004    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,  288U },   /* 3 gap 4 us      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U,  576U },   /* 4 gap 8 us      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  0U, 1152U },   /* 5 gap 16 us     */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  576U },   /* 6 Y-first 8 us  */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1004U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  1U,  576U },   /* 7 Y-first+1004+8*/
+};
+#elif PHASE_MODES
+/* Round 42: frame start phase alignment. All modes are the 00d11f9e configuration
+ * (S41.5, 32 pulses, one conversion, bin 9, P32-C4164, 1002 us floor, 1/32 hysteresis,
+ * learner off); only the frame start phase differs: mode 1 is unaligned (the control,
+ * the phase is whatever the schedule reset happens to give), modes 2-7 force DWT mod 12
+ * to 0, 2, 4, 6, 8, 10. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt            align */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5,  255U },   /* 0 HOOK    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,  255U },   /* 1 free    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,    0U },   /* 2 A0      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,    2U },   /* 3 A2      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,    4U },   /* 4 A4      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,    6U },   /* 5 A6      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,    8U },   /* 6 A8      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5,   10U },   /* 7 A10     */
+};
+#elif SCAN1K_MODES
+/* Round 40: 1 kHz long-window / frame-floor rotation. All modes keep one
+ * conversion (median-of-3 was bad at the short windows in round 39), bin 9,
+ * 1/32 hysteresis and the learner off. Modes 1-3 vary the frame floor around
+ * the 1 ms host poll; modes 4-7 trade pulses and the X preparation read to fit
+ * a longer ADC window inside ~1002 us. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5  },   /* 0 HOOK        */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 1 S41/1002    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1000U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 2 S41/1000    */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1004U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 3 S41/1004    */
+  { 28U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5  },   /* 4 S71/28p     */
+  { 24U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5  },   /* 5 S71/24p     */
+  { 24U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5 },   /* 6 S239/24p    */
+  { 26U, LOOP_LOCK_FREE, 1U, 1U, 1U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1002U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5 },   /* 7 S239/26p 6R */
+};
+#elif RATE_MODES
+/* Round 39: 800 Hz (1250 us frame floor) rate/scanning rotation. All modes keep
+ * the release read timing (P32-C4164, bin 9, 1/32 hysteresis, learner off) and
+ * spend the extra ~250 us per frame on a longer ADC window and/or same-frame
+ * median-of-3, and in modes 6-7 on 40 excitation pulses. */
+static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
+  /* pulses lock          nconv skipY skipX gap  cad  phase abs  bin  rc  period adc1    pa2   pad  frame  maint hyst learn fit  ex   ey   sampt */
+  { 29U, LOOP_LOCK_FREE, 3U, 0U, 0U,  0U, 0U,  0U, 0U,  0U, 0U,   0U,     0U,    0U,    0U,     0U,   0U,  5U,  1U,  0U,  0,   0,  ADC_SAMPT_13_5  },   /* 0 HOOK       */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 1 S41/1      */
+  { 32U, LOOP_LOCK_FREE, 3U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 2 S41/3      */
+  { 32U, LOOP_LOCK_FREE, 3U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5  },   /* 3 S71/3      */
+  { 32U, LOOP_LOCK_FREE, 1U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5 },   /* 4 S239/1     */
+  { 32U, LOOP_LOCK_FREE, 3U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_239_5 },   /* 5 S239/3     */
+  { 40U, LOOP_LOCK_FREE, 3U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_41_5  },   /* 6 S41/40p/3  */
+  { 40U, LOOP_LOCK_FREE, 3U, 1U, 0U,  0U, 1U, 17U, 1U,  9U, 0U,   0U,  3696U,  468U,    0U,  1250U,   1U,  5U,  0U,  0U,  0,   0,  ADC_SAMPT_71_5  },   /* 7 S71/40p/3  */
+};
+#elif FINE_MODES
 /* Round 38: S41.5 fixed, residual-X rotation. Hysteresis 1/16, 1/32, 1/64,
  * 1/128 and fixed X slot-gain e +8/-8/+16 at the same read timing. */
 static const loop_mode_def loop_defs[LOOP_MODE_COUNT] = {
@@ -622,10 +1052,27 @@ static void loop_apply(uint8_t mode) {
   loop_sof_slack = 0U;
   loop_in_wait_us = 0U;
   loop_in_flag = 0U;
+#if AXIS_GAP_MODES
+  /* Round 50: gap_cyc is the extra X gap, gap_y the extra Y gap. */
+  sensing_set_loop((uint32_t)d->gap_cyc, 0U,
+                   (mode == 0U) ? 0U : SENSING_LOOP_DWELL);
+  sensing_set_loop_gap_y(d->gap_y);
+#elif GAP_MODES || CONV_MODES || JITTER_MODES
+  /* Round 49 tables reuse gap_cyc as the extra read-to-read idle gap. */
+  sensing_set_loop((uint32_t)d->gap_cyc, 0U,
+                   (mode == 0U) ? 0U : SENSING_LOOP_DWELL);
+#else
   sensing_set_loop(0U, 0U, (mode == 0U) ? 0U : SENSING_LOOP_DWELL);
+#endif
   sensing_set_loop_analog(d->pulses, d->adc1);
   sensing_set_loop_pa2(d->pa2_low);
   sensing_set_loop_read(d->nconv, d->skip_prep_y, d->skip_prep_x);
+#if ORDER_MODES || SETTLE_MODES
+  sensing_set_read_order(d->order);
+#if !(GAP_MODES || CONV_MODES || JITTER_MODES || AXIS_GAP_MODES)
+  sensing_set_frame_gap(d->gap_cyc);
+#endif
+#endif
   loop_cadence = (mode != 0U && d->cadence != 0U) ? 1U : 0U;
   loop_cad_bin = (loop_cadence != 0U && d->cad_bin >= 1U && d->cad_bin <= 12U) ? d->cad_bin : 0U;
   loop_cad_rc = (loop_cadence != 0U && d->cad_rc != 0U) ? 1U : 0U;
@@ -633,7 +1080,21 @@ static void loop_apply(uint8_t mode) {
   sensing_set_cadence(d->cad_phase, d->cad_abs);
   sensing_set_cadence_period((loop_cadence != 0U) ? d->cad_period : 0U);
   sensing_set_cadence_pad((loop_cadence != 0U) ? d->cad_pad : 0U);
-  sensing_set_cadence_frame((loop_cadence != 0U) ? (uint32_t)d->frame_us * (CPU_HZ / 1000000UL) : 0U);
+#if FRAME_FLOOR_US
+  const uint16_t floor_us = (uint16_t)FRAME_FLOOR_US;
+#else
+  const uint16_t floor_us = d->frame_us;
+#endif
+  sensing_set_cadence_frame((loop_cadence != 0U) ? (uint32_t)floor_us * (CPU_HZ / 1000000UL) : 0U);
+#if PHASE_MODES
+  sensing_set_start_align((loop_cadence != 0U) ? d->align : 255U);
+#endif
+#if R55_MODES
+  sensing_set_r55((loop_cadence != 0U) ? d->r55_align : 0U, (loop_cadence != 0U) ? d->r55_exact : 0U);
+#endif
+#if R56_MODES
+  sensing_set_r56_lead((loop_cadence != 0U) ? (uint32_t)d->r56_lead : 0U);
+#endif
   tracker_set_hyst_shift(d->hyst);
   tracker_set_slot_learn(d->learn);
   tracker_set_fit_mode(d->fit);
@@ -699,6 +1160,9 @@ static __attribute__((unused)) void loop_note_drop(uint8_t reason) {
 #define DIAG_MS_CYC   (CPU_HZ / 1000UL)
 #define DIAG_HB_MS    10U
 #define DIAG_STUCK_MS 100U
+#if QUIET_HEARTBEAT
+#define DIAG_PRIME_FRAMES 1024U   /* startup heartbeat burst before quiet mode (round 17 death) */
+#endif
 static uint32_t diag_ms;            /* device milliseconds since dwt_init() */
 static uint32_t diag_ms_cyc;        /* DWT of the last whole millisecond */
 static uint32_t diag_last_pub;      /* diag_ms of the latest published frame */
@@ -712,6 +1176,9 @@ static uint8_t diag_peak;           /* latest search: max(xp, yp) / 8, saturatin
 static uint8_t diag_stuck;          /* 0 ok, 1 endpoint busy, 2 USB not ready (>= DIAG_STUCK_MS) */
 static uint8_t diag_wait_on;        /* a report is waiting */
 static uint32_t diag_wait_since;    /* diag_ms when it started waiting */
+#if QUIET_HEARTBEAT
+static uint16_t diag_prime;         /* startup heartbeat frames sent since boot */
+#endif
 #if LOOP_DIAG
 static uint32_t diag_setup_at_pub;  /* loop_setup_count at the latest pen report */
 static uint32_t diag_events_at_pub; /* loop_usb_events at the latest pen report */
@@ -725,7 +1192,7 @@ static void diag_clock(void) {
 }
 
 static void diag_usb_watch(void) {
-  if (report_pending() && !tud_hid_n_ready(ITF_VENDOR)) {
+  if (report_pending() && !REPORT_EP_READY()) {
     if (!diag_wait_on) {
       diag_wait_on = 1U;
       diag_wait_since = diag_ms;
@@ -809,6 +1276,28 @@ static void loop_in_wait(uint8_t published) {
     return;
   }
   const uint32_t w0 = DWT_CYCCNT;
+#if defined(FAST_EP1) && FAST_EP1 && (defined(MODE1_IN) || R55_MODES)
+  /* Round 54: -FastEp1 masks the EP1 IN interrupt, so loop_in_count never
+   * moves. Poll the transfer-complete flag directly instead. report_task()
+   * right after report_publish() normally armed this frame's report already
+   * (fast_send() cleared XFRC), so XFRC here means the host took that report.
+   * service_usb() sends it if the endpoint was still busy then. */
+  service_usb();
+  uint8_t timed_out = 0U;
+  uint32_t t_in;
+  for (;;) {
+    t_in = DWT_CYCCNT;
+    if ((USBFS_DIEPINT1 & USBFS_DIEPINT_XFRC) != 0U) {
+      break;
+    }
+    if ((uint32_t)(t_in - w0) > LOOP_IN_TIMEOUT_CYC) {
+      timed_out = 1U;
+      break;
+    }
+  }
+  USBFS_DIEPINT1 = USBFS_DIEPINT_XFRC;   /* write 1 to clear: the next XFRC is the next report's */
+  report_task();                         /* a report still pending (endpoint was busy) goes now */
+#else
   const uint32_t c0 = loop_in_count;
   service_usb();
   uint8_t timed_out = 0U;
@@ -819,6 +1308,7 @@ static void loop_in_wait(uint8_t published) {
     }
   }
   const uint32_t t_in = timed_out ? DWT_CYCCNT : loop_in_t;
+#endif
   const uint32_t wait_us = (t_in - w0) / (CPU_HZ / 1000000UL);
   loop_in_wait_us = (uint16_t)((wait_us > 1023U) ? 1023U : wait_us);
   loop_in_flag = timed_out;
@@ -1489,12 +1979,20 @@ int main(void) {
     diag_clock();
     diag_usb_watch();
 #if QUIET_HEARTBEAT
-    if (diag_stuck != 0U && (uint32_t)(diag_ms - diag_last_pub) >= DIAG_HB_MS) {
+    const uint8_t priming = (diag_prime < DIAG_PRIME_FRAMES) ? 1U : 0U;
+    const uint32_t hb_gap = priming ? 1U : DIAG_HB_MS;
+    if ((diag_stuck != 0U || priming != 0U) &&
+        (uint32_t)(diag_ms - diag_last_pub) >= hb_gap) {
 #else
     if ((uint32_t)(diag_ms - diag_last_pub) >= DIAG_HB_MS) {
 #endif
       diag_heartbeat(tracking);
       diag_last_pub = diag_ms;
+#if QUIET_HEARTBEAT
+      if (diag_prime < DIAG_PRIME_FRAMES) {
+        diag_prime++;
+      }
+#endif
       report_task();
     }
 #endif
@@ -1917,17 +2415,71 @@ int main(void) {
     smooth_apply(&out.x, &out.y);
 #endif
 #if LOOP_MODES
-#if RELEASE_AUX_ZERO
+#if R55_MODES && R55_AUX
+    {
+      /* Round 55 aux, see the loop_defs table. */
+      uint32_t low = loop_in ? (uint32_t)loop_in_wait_us
+                             : sensing_frame_first_late_cyc() / (CPU_HZ / 1000000UL);
+      if (low > 63U) {
+        low = 63U;
+      }
+      uint32_t spread = sensing_r55_land_spread();
+      if (spread > 15U) {
+        spread = 15U;
+      }
+      const uint32_t aux = low | (spread << 6) |
+                           ((passes > 1U) ? 0x0400U : 0U) |
+                           (loop_in_flag ? 0x0800U : 0U) |
+                           ((loop_cadence && sensing_frame_max_late_cyc() != 0U) ? 0x1000U : 0U) |
+                           ((uint32_t)loop_mode << 13);
+      report_set_aux((uint16_t)aux);
+      loop_maint = 0U;
+    }
+#elif WAVE_AUX
+    {
+      /* Round 41 diagnostic (build.ps1 -WaveAux): the aux bytes carry one raw window read of this
+       * frame, rotating through the seven reads the fit uses: channel 0..3 = X slots 0..3,
+       * channel 4..6 = Y slots 1..3. Bits 0-11 value (clamped to 4095), bits 12-14 channel,
+       * bit 15 = bit 4 of the frame counter (frame phase, to compare with the sent-report phase). */
+      const uint32_t wc = frames % 7U;
+      uint32_t wv = (wc < 4U) ? (uint32_t)xa[wc] : (uint32_t)ya[wc - 3U];
+      if (wv > 4095U) {
+        wv = 4095U;
+      }
+      report_set_aux((uint16_t)(wv | (wc << 12) | (((frames >> 4) & 1U) << 15)));
+      loop_maint = 0U;
+    }
+#elif RELEASE_AUX_ZERO && !FRAME_AUX
     report_set_aux(0U);
     loop_maint = 0U;
 #else
     {
 #if FRAME_AUX
+#if defined(MODE1_SOF)
+      /* Round 53 SOF-locked frameaux: aux bits 0-9 = SOF-wait slack in us (time from
+       * the end of the frame's work to the next USB frame edge, i.e. the margin),
+       * bit 10 = the previous frame ran past its USB frame (missed a SOF). */
+      /* Bits 11-14 = read index (0..13) at whose start the host had taken the
+       * previous report, 14 = only by frame end, 15 = not during this frame. */
+      const uint32_t low = (uint32_t)loop_sof_slack | (loop_sof_over ? 0x400U : 0U);
+      const uint32_t aux = (low & 0x7FFU) | (loop_in_index(sensing_in_mask()) << 11);
+#elif defined(MODE1_IN)
+      /* Round 54 IN-locked frameaux: bits 0-9 = IN wait in us (from the end of
+       * the frame's work to the host taking the report, i.e. the margin;
+       * saturating 1023), bit 10 = this frame did not start on an IN completion
+       * (timeout, or the SOF fallback after a frame without a report). Bits
+       * 11-14 = read index (0..13) at whose start the USB frame number had
+       * changed (where the SOF fell; sensing.c samples DSTS instead of XFRC in
+       * this build), 14 = only by frame end, 15 = no SOF during the frame. */
+      const uint32_t low = (uint32_t)loop_in_wait_us | (loop_in_flag ? 0x400U : 0U);
+      const uint32_t aux = (low & 0x7FFU) | (loop_in_index(sensing_in_mask()) << 11);
+#else
       uint32_t low = sensing_frame_period_us();
       if (low > 2047U) {
         low = 2047U;
       }
       const uint32_t aux = low | ((uint32_t)loop_mode << 13);
+#endif
 #else
       uint32_t low;
       uint32_t flag = 0U;

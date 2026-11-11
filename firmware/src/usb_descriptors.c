@@ -32,8 +32,18 @@
 #ifndef BCD_DEVICE
 #define BCD_DEVICE 0x0112  /* build.ps1 -BcdDevice <n>: cache-bust release number */
 #endif
+#ifndef DIGITIZER_BINTERVAL
+/* build.ps1 -DigitizerInterval <n>: digitizer endpoint poll interval, default 1 ms.
+ * A slower digitizer endpoint leaves more periodic-schedule room for the vendor
+ * endpoint; the vendor report interval is not changed. */
+#define DIGITIZER_BINTERVAL 1
+#endif
 #ifndef SERIAL_NUMBER
-#define SERIAL_NUMBER 20210226  /* build.ps1 -SerialNumber <n>: stock-identity serial */
+/* Stable stock H420X serial. Keep this constant for every test and release image:
+ * Windows/OTD bind the device by serial, so a per-candidate serial makes each
+ * flash look like a new tablet and breaks automatic pickup. build.ps1
+ * -SerialNumber <n> can override it for a deliberate identity test. */
+#define SERIAL_NUMBER 20210233
 #endif
 #define H420X_STR2(x) #x
 #define H420X_STR(x) H420X_STR2(x)
@@ -114,7 +124,7 @@ const uint8_t h420x_config_descriptor[CONFIG_TOTAL_LEN] = {
     EPNUM_DIGITIZER,
     0x03,
     16, 0,
-    1,
+    DIGITIZER_BINTERVAL,
 
     /* Interface 2: keyboard reports */
     9, 0x04,

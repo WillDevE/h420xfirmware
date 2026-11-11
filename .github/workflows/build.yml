@@ -40,17 +40,11 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value $bin
           & (Join-Path $bin 'arm-none-eabi-gcc.exe') --version
 
-      - name: Build rhythm1000 (stable)
+      - name: Build rhythm1000
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          ./firmware/build.ps1 -Profile rhythm900 -Robust -EdgeExt -SamptModes -LoopMode 3 -LoopArm -Release -CadReset 256 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -Clean
-
-      - name: Build rhythm1015-wip (WIP)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          ./firmware-wip/build.ps1 -Clean -Profile rhythm900 -Robust -EdgeExt -Scan1kModes -AxisGapModes -LoopMode 1 -LoopArm -Release -CadReset 256 -FrameFloorUs 985 -ReadGap 50 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat
+          ./firmware/build.ps1 -Clean -Profile rhythm900 -Robust -EdgeExt -Scan1kModes -AxisGapModes -LoopMode 3 -LoopArm -Release -CadReset 256 -ReadGap 50 -StockIdentity -SerialNumber 20210233 -LateConnect -QuietHeartbeat -FastEp1 -R59Modes -NoR55Aux
 
       - name: Verify image (96 checks)
         shell: pwsh
@@ -62,32 +56,16 @@ jobs:
           python firmware/tools/verify_image.py --elf $elf.FullName --bin $app.FullName
           if ($LASTEXITCODE -ne 0) { throw 'verify_image.py failed' }
 
-      - name: Verify WIP image (96 checks)
+      - name: Stage image and check the tested hash
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $elf = Get-ChildItem firmware-wip/build/*.elf | Select-Object -First 1
-          $app = Get-ChildItem firmware-wip/build/*_app.bin | Select-Object -First 1
-          if (-not $elf -or -not $app) { throw 'WIP build outputs not found' }
-          python firmware-wip/tools/verify_image.py --elf $elf.FullName --bin $app.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'WIP verify_image.py failed' }
-
-      - name: Stage images and check the tested hashes
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $images = @(
-            @{ Name = 'rhythm1000.bin';     Dir = 'firmware';     Want = '00d11f9e682c7fdb7e52896db66b5170ae881a1fafe4e79638d10282ce262171' },
-            @{ Name = 'rhythm1015-wip.bin'; Dir = 'firmware-wip'; Want = '12cdd4689595dc94d68546fe74d279be9c84b1028b8e45afcaaa9fd8bead11a3' }
-          )
-          foreach ($image in $images) {
-            $app = Get-ChildItem "$($image.Dir)/build/*_app.bin" | Select-Object -First 1
-            if (-not $app) { throw "Build output not found for $($image.Name)" }
-            $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
-            if ($hash -ne $image.Want) { throw "Built $($image.Name) SHA-256 $hash does not match the tested image $($image.Want)" }
-            Copy-Item $app.FullName $image.Name
-            "$hash  $($image.Name)" | Out-File -Encoding ascii "$($image.Name).sha256"
-          }
+          $want = '08bbedc446596fbbc65d4f9fe7b89f9d5ab80a8d843d6eea8044f655a10044e1'
+          $app = Get-ChildItem firmware/build/*_app.bin | Select-Object -First 1
+          if (-not $app) { throw 'Build output not found' }
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $app.FullName).Hash.ToLowerInvariant()
+          if ($hash -ne $want) { throw "Built rhythm1000.bin SHA-256 $hash does not match the tested image $want" }
+          Copy-Item $app.FullName rhythm1000.bin
 
       - name: Build flasher package
         shell: pwsh
@@ -95,20 +73,17 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'H420X-Flasher'
           New-Item -ItemType Directory -Force -Path $stage, "$stage\firmware", "$stage\gigadevice" | Out-Null
-          Copy-Item -Path flash.bat, flash.ps1, get-firmware.bat, get-firmware.ps1, LICENSE, NOTICE.md -Destination $stage
+          Copy-Item -Path flash.bat, flash.ps1, LICENSE, NOTICE.md -Destination $stage
           Copy-Item -Path rhythm1000.bin -Destination (Join-Path $stage 'firmware\rhythm1000.bin')
-          Copy-Item -Path rhythm1015-wip.bin -Destination (Join-Path $stage 'firmware\rhythm1015-wip.bin')
           Copy-Item -Path .github/release/README.txt -Destination (Join-Path $stage 'README.txt')
           Copy-Item -Path .github/release/gigadevice-readme.txt -Destination (Join-Path $stage 'gigadevice\README.txt')
 
           $ref = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { $env:GITHUB_SHA }
           @(
-            'Source code for these builds:',
+            'Source code for this build:',
             "https://github.com/WillDevE/h420xfirmware/tree/$ref/firmware",
-            "https://github.com/WillDevE/h420xfirmware/tree/$ref/firmware-wip",
             '',
-            'Those trees are the exact sources used by the GitHub Actions workflow',
-            '(firmware = stable rhythm1000.bin, firmware-wip = WIP rhythm1015-wip.bin).',
+            'That tree is the exact source used by the GitHub Actions workflow.',
             'The release page also has auto-generated source code zip/tar.gz files.',
             '',
             'License: GPL-3.0-or-later (see LICENSE). TinyUSB: MIT (see NOTICE.md).'
@@ -116,11 +91,8 @@ jobs:
 
           $pairs = @(
             @('firmware\rhythm1000.bin', 'rhythm1000.bin'),
-            @('firmware\rhythm1015-wip.bin', 'rhythm1015-wip.bin'),
             @('flash.ps1', 'flash.ps1'),
             @('flash.bat', 'flash.bat'),
-            @('get-firmware.ps1', 'get-firmware.ps1'),
-            @('get-firmware.bat', 'get-firmware.bat'),
             @('README.txt', 'README.txt'),
             @('SOURCE.txt', 'SOURCE.txt'),
             @('LICENSE', 'LICENSE'),
@@ -134,17 +106,12 @@ jobs:
           $sums | Out-File -Encoding ascii (Join-Path $stage 'SHA256SUMS.txt')
 
           Compress-Archive -Path $stage -DestinationPath 'H420X-Flasher.zip' -Force
-          $versioned = "H420X-Flasher-$($env:GITHUB_REF_NAME).zip"
-          Copy-Item -Path 'H420X-Flasher.zip' -Destination $versioned -Force
-          $zipHash = (Get-FileHash -Algorithm SHA256 -Path 'H420X-Flasher.zip').Hash.ToLowerInvariant()
-          "$zipHash  H420X-Flasher.zip" | Out-File -Encoding ascii 'H420X-Flasher.zip.sha256'
-          "$zipHash  $versioned" | Out-File -Encoding ascii "$versioned.sha256"
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'H420X-Flasher.zip'))
           $zip.Entries | Select-Object -ExpandProperty FullName
           $zip.Dispose()
-          Write-Host "ZIP SHA-256: $zipHash"
+          Write-Host "ZIP SHA-256: $((Get-FileHash -Algorithm SHA256 -Path 'H420X-Flasher.zip').Hash.ToLowerInvariant())"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -152,23 +119,74 @@ jobs:
           name: firmware-images
           path: |
             rhythm1000.bin
-            rhythm1000.bin.sha256
-            rhythm1015-wip.bin
-            rhythm1015-wip.bin.sha256
             H420X-Flasher.zip
-            H420X-Flasher-*.zip
-            H420X-Flasher*.sha256
 
-      - name: Publish release asset (tag only)
+      - name: Publish release (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:GITHUB_REF_NAME
-          $notes = "Normal users: download H420X-Flasher.zip - it contains the flasher and two cursor-only images. The flasher labels image 1 (rhythm1000.bin) as the stable, recommended release and image 2 (rhythm1015-wip.bin) as WIP: higher report rate and lower overall scatter, but about 0.6% of reports land at 2 ms in a deterministic ~180 ms beat (no long bursts; cause under investigation). Advanced: both standalone images and their SHA-256 files are attached. Both images are built from the source in this repository by GitHub Actions; see README.md for the comparison, install and verification instructions."
-          gh release create $tag H420X-Flasher.zip --verify-tag --title "H420X clean-room firmware $tag" --notes $notes 2>$null
-          gh release upload $tag H420X-Flasher.zip "H420X-Flasher-$tag.zip" H420X-Flasher.zip.sha256 "H420X-Flasher-$tag.zip.sha256" rhythm1000.bin rhythm1000.bin.sha256 rhythm1015-wip.bin rhythm1015-wip.bin.sha256 --clobber
+          $imageHash = (Get-FileHash -Algorithm SHA256 -Path 'rhythm1000.bin').Hash.ToLowerInvariant()
+          $zipHash = (Get-FileHash -Algorithm SHA256 -Path 'H420X-Flasher.zip').Hash.ToLowerInvariant()
+          $notes = @(
+            'Final 1000 Hz cursor-only firmware for the Huion H420X.',
+            '',
+            '**Download `H420X-Flasher.zip`.** It has the flasher and the firmware image inside; see the README for the steps.',
+            '',
+            '- 999.9 Hz on the test bench, with no dropped reports and no report gaps over 1.5 ms in about 214,000 reports.',
+            '- Steady jitter over 9 tablet positions: X 1.82 / Y 2.28 units RMS (1 unit is about 0.005 mm).',
+            '- Raw same-frame position: no filtering, smoothing or added delay. No pressure, tip or pen buttons.',
+            '',
+            "``rhythm1000.bin`` SHA-256: ``$imageHash``",
+            "``H420X-Flasher.zip`` SHA-256: ``$zipHash``",
+            '',
+            'Built by GitHub Actions from the source in this repository. Older releases are kept as Legacy.'
+          )
+          $notesFile = Join-Path $env:RUNNER_TEMP 'notes.md'
+          $notes | Out-File -Encoding utf8 $notesFile
+          gh release create $tag H420X-Flasher.zip --verify-tag --latest --title "H420X clean-room firmware $tag (1000 Hz)" --notes-file $notesFile 2>$null
+          gh release upload $tag H420X-Flasher.zip --clobber
           if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
-          gh release edit $tag --notes $notes
+          gh release edit $tag --latest --title "H420X clean-room firmware $tag (1000 Hz)" --notes-file $notesFile
           if ($LASTEXITCODE -ne 0) { throw 'gh release edit failed' }
+
+      - name: Mark older releases as legacy (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $legacy = @(
+            @{ Tag = 'v1.0.3'; Keep = 'H420X-Flasher-v1.0.3.zip' },
+            @{ Tag = 'v1.0.2'; Keep = 'H420X-Flasher-v1.0.2.zip' },
+            @{ Tag = 'v1.0.1'; Keep = 'H420X-Flasher-v1.0.1.zip' },
+            @{ Tag = 'v1.0.0'; Keep = 'rhythm1000.bin' }
+          )
+          # Check every release first, so a surprise stops the step before anything is deleted.
+          foreach ($item in $legacy) {
+            $json = gh release view $item.Tag --json assets
+            if ($LASTEXITCODE -ne 0) { throw "Cannot read release $($item.Tag)" }
+            $names = @(($json | ConvertFrom-Json).assets | ForEach-Object { $_.name })
+            if ($names -notcontains $item.Keep) { throw "$($item.Tag) has no $($item.Keep); nothing was deleted" }
+            $item.Names = $names
+          }
+          $notice = '> **Legacy release, not recommended.** Superseded by the [latest release](https://github.com/WillDevE/h420xfirmware/releases/latest). Only its main download is kept here; other files mentioned below were removed to reduce clutter.'
+          foreach ($item in $legacy) {
+            foreach ($asset in $item.Names) {
+              if ($asset -ne $item.Keep) {
+                gh release delete-asset $item.Tag $asset --yes
+                if ($LASTEXITCODE -ne 0) { throw "Could not delete $asset from $($item.Tag)" }
+              }
+            }
+            $json = gh release view $item.Tag --json body
+            if ($LASTEXITCODE -ne 0) { throw "Cannot read release $($item.Tag)" }
+            $body = "$(($json | ConvertFrom-Json).body)"
+            if (-not $body.StartsWith('> **Legacy release')) { $body = "$notice`n`n$body" }
+            $notesFile = Join-Path $env:RUNNER_TEMP "legacy-$($item.Tag).md"
+            Set-Content -Encoding utf8 -Path $notesFile -Value $body
+            gh release edit $item.Tag --latest=false --title "[Legacy] H420X clean-room firmware $($item.Tag)" --notes-file $notesFile
+            if ($LASTEXITCODE -ne 0) { throw "Could not mark $($item.Tag) as legacy" }
+          }

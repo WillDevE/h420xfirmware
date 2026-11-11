@@ -157,12 +157,16 @@ void sensing_frame_end(void);
 #define SENSING_LOOP_ADC_STOCK 0x02U
 #define SENSING_LOOP_PULSES28  0x04U
 void sensing_set_loop(uint32_t extra_gap_cyc, uint8_t extra_prep, uint8_t flags);
+#if AXIS_GAP_MODES
+void sensing_set_loop_gap_y(uint16_t extra_cyc);
+#endif
 void sensing_frame_gap(uint32_t cyc);
 uint32_t sensing_window_late(uint8_t axis);
 uint32_t sensing_window_first_late(uint8_t axis);
 /* Round 10 (-Modes / -LoopMode builds only). sensing_set_loop_analog():
  * excitation pulses per burst (8..40, anything else = EXCITE_PULSES) and the
- * delay from PA2 low to the first used conversion in cycles (1440..5000,
+ * delay from PA2 low to the first used conversion in cycles (1440..5000;
+ * round 59 builds 1440..5200,
  * anything else = the profile default) for every later read. Call it after
  * sensing_set_loop(), which resets the pulse count.
  * sensing_frame_start_at(): the next burst starts at DWT time `t` (or as soon
@@ -207,6 +211,38 @@ void sensing_set_cadence_period(uint8_t period_cyc);
 void sensing_set_loop_pa2(uint32_t pa2_low_cyc);
 /* Round 35: ADC sample-time code for the used conversions (0..7). */
 void sensing_set_sample_time(uint8_t code);
+/* Round 42: force the first read of every cadence frame to start at a DWT value
+ * with (DWT mod 12) == align (0..11; round 42 assumed a 12-cycle ADC clock, but
+ * round 56 mode 6 timing shows 6 CPU cycles per ADC clock, 12 MHz); anything
+ * else = no alignment. Forgets the cadence schedule. Only built with PHASE_MODES. */
+void sensing_set_start_align(uint8_t align);
+#if defined(R55_MODES) && R55_MODES
+/* Round 55: align_m = 12 or 720 puts the first read of every cadence frame on
+ * a DWT grid of that many cycles (anything else = off); exact = 1 lands the
+ * burst start, PA2 low and the conversion start on their deadline to the
+ * cycle. sensing_r55_land_spread(): for the latest cadence frame, the spread
+ * (latest - earliest) of how many cycles past their deadlines the landings
+ * came out; 0 = every landing at the same offset. */
+/* Round 57 builds (R57_MODES) also accept align_m = 24, 72 and 144; round 58
+ * builds (R58_MODES) also 834 and 139, relative grids anchored one host frame
+ * (72000 cycles) after the previous first read. */
+void sensing_set_r55(uint16_t align_m, uint8_t exact);
+uint32_t sensing_r55_land_spread(void);
+#endif
+#if defined(R56_MODES) && R56_MODES
+/* Round 56: lead_cyc != 0 schedules the first read of every cadence frame
+ * LOOP_DWELL_LEAD_CYC + lead_cyc cycles after sensing_read_frame() starts (then
+ * on the round 55 grid, if one is set), instead of as soon as possible. A frame
+ * without the Y prep read uses it to keep its used reads in the control's slots,
+ * so they end just before the next host poll. 0 (or more than 20000) = off. */
+void sensing_set_r56_lead(uint32_t lead_cyc);
+#endif
+/* Round 44: read order 0 = X first, 1 = Y first, 2/3 = the same reversed;
+ * frame gap = extra idle cycles before the first burst of every frame
+ * (0..4000; it forgets the cadence schedule). Only built with ORDER_MODES or
+ * SETTLE_MODES. */
+void sensing_set_read_order(uint8_t order);
+void sensing_set_frame_gap(uint16_t gap_cyc);
 /* Round 21: idle cycles added to the cadence read period (0..4000, anything
  * else = 0), before the absolute-phase rounding; forgets the schedule. */
 void sensing_set_cadence_pad(uint32_t pad_cyc);

@@ -4,13 +4,12 @@ This repository contains or uses the following third-party components:
 
 ## TinyUSB
 
-`firmware/third_party/tinyusb/` and `firmware-wip/third_party/tinyusb/` are the
-TinyUSB device stack, licensed under the MIT License. The full license text is
-in each tree's `LICENSE`.
+`firmware/third_party/tinyusb/` is the TinyUSB device stack, licensed under the
+MIT License. The full license text is in that tree's `LICENSE`.
 
 ## Arm GNU Toolchain
 
-The release images are built with Arm GNU Toolchain 12.2.MPACBTI-Rel1. The
+The release image is built with Arm GNU Toolchain 12.2.MPACBTI-Rel1. The
 toolchain is downloaded by the GitHub Actions workflow and is not distributed
 in this repository. See the Arm GNU Toolchain release notes and licenses for its
 terms.
