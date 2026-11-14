@@ -1,5 +1,7 @@
 # H420X (T223) clean-room firmware
 
+AI DISCLOSURE: yeah I used AI vro (Reverse engineering of stock firmware dump with ghidra, cleanroom rewrite of usb handling, creating test harnesses and parsing test data, generating firmware candidates, this whole thing is thoroughly human tested though).
+
 A from-scratch replacement firmware for the Huion H420X pen tablet, built for
 low-latency rhythm-game (ozu) aim. It's not a patched Huion image and doesn't contain
 any Huion application code. The stock 16 KB bootloader and its DFU recovery path
