@@ -40,6 +40,11 @@ $CFG_START = 0x0800FC00; $CFG_LEN = 1024
 $TAIL_START = 0x0800BD00; $TAIL_LEN = 768
 $BOOT_SHA256 = '7C1763281D039D8DB341B1E2E66D3B08F843CBAE4B53BA6B43FA7F3F6AAEB188'
 $DLL_SHA256  = 'C97D2A6A94747D2C7532BB98ED447008319C3D74E87D96CDF018B54602A5AD14'
+# Huion's older stock app HUION_T210_210611 is 32,052 bytes: its last 52 bytes sit in the
+# page tail. It is recognised by the SHA-256 of all 32,052 bytes, backed up whole, and can
+# be restored whole. Any other data in the tail still stops the flasher.
+$T210_LEN = 32052
+$T210_SHA256 = '8EF9DD1B8E8C71AFD88EB18778853A6C1C223C41AF1518D2A2015E4CCB96C95A'
 
 function Sha256Hex([byte[]]$Data) {
     $h = [System.Security.Cryptography.SHA256]::Create()
@@ -99,7 +104,13 @@ $image = [System.IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $Firmware))
 $rawLength = $image.Length
 if ($image.Length -ne $APP_LEN) {
     $extra = $image.Length - $APP_LEN
-    if ($extra -gt 0 -and $extra -le $TAIL_LEN) {
+    if ($extra -gt 0 -and $extra -le $TAIL_LEN -and
+        (Sha256Hex ([byte[]]$image[0..([Math]::Min($image.Length, $T210_LEN) - 1)])) -eq $T210_SHA256 -and
+        ($image.Length -eq $T210_LEN -or @($image[$T210_LEN..($image.Length - 1)] | Where-Object { $_ -ne 0xFF }).Count -eq 0)) {
+        # Huion stock T210_210611 (32,052 bytes), e.g. a backup taken by this script.
+        $image = [byte[]]$image[0..($T210_LEN - 1)]
+        Write-Host "Huion stock firmware T210_210611 (32,052 bytes): it will be restored whole." -ForegroundColor Yellow
+    } elseif ($extra -gt 0 -and $extra -le $TAIL_LEN) {
         $tail = @($image[$APP_LEN..($image.Length - 1)])
         if (@($tail | Where-Object { $_ -ne 0xFF }).Count -ne 0) {
             Fail "This file is $rawLength bytes: it has $extra byte(s) past the 32,000-byte application area and at least one is not 0xFF. Refusing to drop real data."
@@ -411,14 +422,25 @@ try {
     $boot = Read-Range $handle $BOOT_START $BOOT_LEN
     if ((Sha256Hex $boot) -ne $BOOT_SHA256) { Fail 'This is not the supported H420X/T223 bootloader. Nothing was changed.' }
     $tail = Read-Range $handle $TAIL_START $TAIL_LEN
-    foreach ($b in $tail) { if ($b -ne 0xFF) { Fail 'Unexpected data after the application area. Nothing was changed.' } }
+    $installedLen = $APP_LEN
+    if (@($tail | Where-Object { $_ -ne 0xFF }).Count -ne 0) {
+        # Only Huion's 32,052-byte T210_210611 stock may use the tail; anything else stops here.
+        $long = Read-Range $handle $APP_START $T210_LEN
+        $restFF = @($tail[($T210_LEN - $APP_LEN)..($TAIL_LEN - 1)] | Where-Object { $_ -ne 0xFF }).Count -eq 0
+        if ($restFF -and (Sha256Hex $long) -eq $T210_SHA256) {
+            $installedLen = $T210_LEN
+            Write-Host "CHECK: Huion stock T210_210611 installed (32,052 bytes); it will be backed up whole." -ForegroundColor Yellow
+        } else {
+            Fail 'Unexpected data after the application area. Nothing was changed.'
+        }
+    }
     $cfg = Read-Range $handle $CFG_START $CFG_LEN
     $cfgPrint = (Sha256Hex $cfg).Substring(0, 12).ToLower()
     Write-Host "CHECK: supported H420X/T223 bootloader; page tail empty; settings page read OK (fingerprint $cfgPrint)."
 
     # ---------- 4. backup ----------
-    $current = Read-Range $handle $APP_START $APP_LEN
-    $again = Read-Range $handle $APP_START $APP_LEN
+    $current = Read-Range $handle $APP_START $installedLen
+    $again = Read-Range $handle $APP_START $installedLen
     if (-not (Same $current $again)) { Fail 'Two reads of the current firmware differ. Nothing was changed; replug and retry.' }
     # Identify what is currently installed (same vector-table rule as for files).
     $csp = [BitConverter]::ToUInt32($current, 0); $creset = [BitConverter]::ToUInt32($current, 4)
@@ -427,6 +449,7 @@ try {
     $currentSha = Sha256Hex $current
     $label = 'unknown'
     foreach ($k in $listed.Keys) { if ($listed[$k] -eq $currentSha -and $k -like '*.bin') { $label = [IO.Path]::GetFileNameWithoutExtension($k) } }
+    if ($currentSha -eq $T210_SHA256) { $label = 'stock_T210_210611' }
     if ($installedOk) {
         Write-Host ("CHECK: installed app is a valid H420X application: {0} ({1})." -f $label, $currentSha.Substring(0, 8).ToLower()) -ForegroundColor Green
     } else {
@@ -458,18 +481,21 @@ try {
     # the tablet was swapped or disturbed mid-run.
     $reboot = Read-Range $handle $BOOT_START $BOOT_LEN
     if ((Sha256Hex $reboot) -ne $BOOT_SHA256) { throw 'tablet changed since backup (bootloader). Run flash.bat again.' }
-    $reapp = Read-Range $handle $APP_START $APP_LEN
+    $reapp = Read-Range $handle $APP_START $installedLen
     if (-not (Same $reapp $current)) { throw 'tablet changed since backup (application). Run flash.bat again.' }
     Write-Host "  Same tablet re-verified; erasing and writing now."
     $erased = $true
-    for ($a = $APP_START; $a -lt ($APP_START + $APP_LEN); $a += $PAGE) { Erase-Page $handle $a }
-    for ($off = 0; $off -lt $APP_LEN; $off += 1024) {
-        $n = [Math]::Min(1024, $APP_LEN - $off)
+    # Erasing up to 0x0800BD00 also erases the rest of its 1 KB page (the tail, up to 0x0800C000).
+    for ($a = $APP_START; $a -lt ($APP_START + $image.Length); $a += $PAGE) { Erase-Page $handle $a }
+    for ($off = 0; $off -lt $image.Length; $off += 1024) {
+        $n = [Math]::Min(1024, $image.Length - $off)
         $chunk = New-Object byte[] $n; [Array]::Copy($image, $off, $chunk, 0, $n)
         Write-Block $handle ($APP_START + $off) $chunk
     }
-    $readback = Read-Range $handle $APP_START $APP_LEN
+    $readback = Read-Range $handle $APP_START $image.Length
     if (-not (Same $readback $image)) { throw 'readback does not match the file' }
+    $tailAfter = Read-Range $handle ($APP_START + $image.Length) ($TAIL_START + $TAIL_LEN - $APP_START - $image.Length)
+    if (@($tailAfter | Where-Object { $_ -ne 0xFF }).Count -ne 0) { throw 'page tail is not empty after writing' }
     if ((Sha256Hex (Read-Range $handle $BOOT_START $BOOT_LEN)) -ne $BOOT_SHA256) { throw 'bootloader changed' }
     Write-Host ""
     Write-Host "  DONE - every byte verified." -ForegroundColor Green

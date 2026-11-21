@@ -103,6 +103,12 @@ time. The flasher then erases and writes **only** the 32,000-byte application
 area at `0x08004000`, and reads it back byte for byte. It never writes the
 bootloader (`0x08000000`) or the settings page (`0x0800FC00`).
 
+Some tablets ship with Huion's older stock firmware `HUION_T210_210611`, which is
+32,052 bytes (52 bytes past the usual 32,000). The flasher recognises it by its
+exact SHA-256, backs it up whole and can restore it whole. Any other data past
+the application area still stops the flasher with "Unexpected data after the
+application area", and nothing is changed.
+
 ## What is all of this
 
 This is firmware for the h420x focused on rhythm games. The short version:
