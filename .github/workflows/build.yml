@@ -135,6 +135,8 @@ jobs:
             '',
             '**Download `H420X-Flasher.zip`.** It has the flasher and the firmware image inside; see the README for the steps.',
             '',
+            'v2.0.2 is a flasher fix only; the firmware image is the same as v2.0.1. The flasher now supports tablets that still have Huion''s older stock firmware HUION_T210_210611 (32,052 bytes), which used to stop it with "Unexpected data after the application area". That firmware is backed up and restored whole.',
+            '',
             'v2.0.1 removes the bands that circles showed at every Y coil boundary and hands over to the next coil where the two coils read equal. Nothing in the image adapts: the same coil readings always give the same position.',
             '',
             '- 999.9 Hz on the test bench, with no dropped reports and no report gaps over 1.5 ms (v2.0.1: about 50,000 reports in circles; v2.0.0, same reads: about 214,000).',
@@ -163,6 +165,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $legacy = @(
+            @{ Tag = 'v2.0.1'; Keep = 'H420X-Flasher.zip' },
             @{ Tag = 'v2.0.0'; Keep = 'H420X-Flasher.zip' },
             @{ Tag = 'v1.0.3'; Keep = 'H420X-Flasher-v1.0.3.zip' },
             @{ Tag = 'v1.0.2'; Keep = 'H420X-Flasher-v1.0.2.zip' },
